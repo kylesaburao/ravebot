@@ -1,0 +1,6 @@
+services:
+  ravebot:
+    build: .
+    env_file:
+      - .env
+    restart: on-failure:5

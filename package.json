@@ -1,0 +1,31 @@
+{
+  "name": "ravebot",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/kylesaburao/ravebot#readme",
+  "bugs": {
+    "url": "https://github.com/kylesaburao/ravebot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kylesaburao/ravebot.git"
+  },
+  "license": "ISC",
+  "author": "Kyle Saburao",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.3",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
