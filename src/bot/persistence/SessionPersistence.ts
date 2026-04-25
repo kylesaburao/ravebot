@@ -9,7 +9,24 @@ export const REBUILD_STATE_HEADER = `\`IN-MEMORY STATE:\``;
 export interface SessionState {
     sessionId: string;
     generation: number;
+    counter?: {
+        lastNumber: number;
+        lastAuthor: string;
+    }
 }
+
+let currentState: SessionState | undefined = undefined;
+
+export const getCurrentState = async (): Promise<SessionState | undefined> => {
+    const state: SessionState | undefined = currentState
+        ? { ...currentState }
+        : undefined;
+    return Promise.resolve(state);
+};
+
+export const setCurrentState = async (updatedState: SessionState) => {
+    currentState = { ...updatedState };
+};
 
 export const createSessionRebuildContentMessage = async (content: SessionState): Promise<string> => {
     const message = JSON.stringify(content);

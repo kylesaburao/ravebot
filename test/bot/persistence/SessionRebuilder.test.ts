@@ -1,11 +1,11 @@
 import { gzipSync } from 'zlib';
-import type { SessionState } from '../../../src/bot/persistence/SessionRebuilder';
+import type { SessionState } from '../../../src/bot/persistence/SessionPersistence';
 import {
     createSessionRebuildContentMessage,
     createSessionRebuildFinalMessage,
     reconstructSessionRebuildContent,
     reconstructSessionStateFromFinalMessage,
-} from '../../../src/bot/persistence/SessionRebuilder';
+} from '../../../src/bot/persistence/SessionPersistence';
 
 describe('SessionRebuilder', () => {
     const state: SessionState = { sessionId: 'abc-123', generation: 0 };
