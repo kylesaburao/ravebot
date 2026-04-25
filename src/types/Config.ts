@@ -1,3 +1,4 @@
-export interface MainConfig {
-    DISCORD_BOT_TOKEN: string;
+import { BotConfig } from "../bot/types/BotConfig";
+
+export interface MainConfig extends BotConfig {
 }
