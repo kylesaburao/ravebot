@@ -1,5 +1,5 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
-import { BotConfig, validateConfig } from "./types/BotConfig";
+import { type BotConfig, validateConfig } from "./types/BotConfig";
 
 const SHUTDOWN_TIMEOUT_MS = 5000;
 
