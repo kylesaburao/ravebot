@@ -1,29 +1,29 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { type BotConfig, validateConfig } from "./types/BotConfig";
-
-const SHUTDOWN_TIMEOUT_MS = 5000;
+import { LogLevel, logMessage } from "./utils/LogFormatter";
 
 const currentTime = () => new Date().toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
+    const startUpTime = Date.now();
     validateConfig(config);
 
     const context = {
         isInit: false
     };
+
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+    const logConfig = { level: LogLevel.INFO, sessionId: config.initId, targetChannel: { client, id: config.SYSTEM_TEXT_CHANNEL_ID }}
 
     client.once(Events.ClientReady, async (readyClient) => {
         context.isInit = true;
+        const readyTime = Date.now();
+        const timeTook = readyTime - startUpTime;
 
-        const systemMessage = `Client is ready @ ${currentTime()}. Logged in as ${readyClient.user.tag} under session ${config.initId} :wave:`;
-        console.log(systemMessage);
-
-        const systemChannel = await client.channels.fetch(config.SYSTEM_TEXT_CHANNEL_ID);
-        if (!systemChannel || !(systemChannel.isSendable() && systemChannel.isTextBased())) {
-            throw new Error('Could not locate system channel');
-        }
-        systemChannel.send(systemMessage);
+        await logMessage(
+            logConfig,
+            `ravebot is ready @ ${currentTime()}. Logged in as ${readyClient.user.tag} and took ${timeTook} ms. :wave:`
+        );
     });
 
     const shutdown = async (signal: string) => {
@@ -34,22 +34,13 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
         console.log(`Received ${signal}, shutting down...`);
 
-        if (signal === 'SIGINT' || signal === 'SIGTERM') {
-            try {
-                const systemChannel = await Promise.race([
-                    client.channels.fetch(config.SYSTEM_TEXT_CHANNEL_ID),
-                    new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), SHUTDOWN_TIMEOUT_MS))
-                ]);
-    
-                if (systemChannel && systemChannel.isSendable() && systemChannel.isTextBased()) {
-                    await Promise.race([
-                        systemChannel.send(`Shutting down @ ${currentTime()} (session ${config.initId}) :wave:`),
-                        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), SHUTDOWN_TIMEOUT_MS))
-                    ]);
-                }
-            } catch (error) {
-                console.error('Failed to send shutdown message:', error);
-            }
+        try {
+            await logMessage(
+                logConfig,
+                `Shutting down @ ${currentTime()} (session ${config.initId}) :wave:`
+            );
+        } catch (error) {
+            console.error('Failed to send shutdown message:', error);
         }
 
         client.destroy();
