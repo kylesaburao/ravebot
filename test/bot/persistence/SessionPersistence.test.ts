@@ -7,7 +7,7 @@ import {
     reconstructSessionStateFromFinalMessage,
 } from '../../../src/bot/persistence/SessionPersistence';
 
-describe('SessionRebuilder', () => {
+describe('SessionPersistence', () => {
     const state: SessionState = { sessionId: 'abc-123', generation: 0 };
 
     describe('createSessionRebuildContentMessage', () => {

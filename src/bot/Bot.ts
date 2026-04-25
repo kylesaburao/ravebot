@@ -2,10 +2,12 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { type BotConfig, validateConfig } from "./types/BotConfig";
 import { LogLevel, logMessage } from "./utils/LogFormatter";
 import { createSessionRebuildFinalMessage, getCurrentState, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage, SessionState, setCurrentState } from "./persistence/SessionPersistence";
+import schedule from 'node-schedule';
 
 const currentTime = () => new Date().toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
+    const shutdownTasks: Function[] = [];
     const startUpTime = Date.now();
     validateConfig(config);
 
@@ -21,6 +23,32 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         ]
     });
     const logConfig = { level: LogLevel.INFO, sessionId: config.initId, targetChannel: { client, id: config.SYSTEM_TEXT_CHANNEL_ID }};
+
+    const sendPersistenceMessage = async (reason: 'Shutting down' | 'Running backup') => {
+        try {
+            console.log('Persisting in-memory state');
+
+            const shutdownMessage = `${reason} @ ${currentTime()} (session ${config.initId}) :wave:`;
+            const currentState = await getCurrentState() ;
+            if (currentState) {
+                const closingMessage = await createSessionRebuildFinalMessage(
+                    shutdownMessage,
+                    currentState
+                );
+                await logMessage(
+                    logConfig,
+                    closingMessage  
+                );
+            } else {
+                await logMessage(
+                    logConfig,
+                    shutdownMessage
+                );
+            }
+        } catch (error) {
+            console.error('Failed to send shutdown message:', error);
+        }
+    };
 
     client.once(Events.ClientReady, async (readyClient) => {
         context.isInit = true;
@@ -89,37 +117,25 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 generation: 0
             });
         }
+
+        setTimeout(() => {
+            const job = schedule.scheduleJob('30 * * * *', () => sendPersistenceMessage('Running backup'));
+            shutdownTasks.push(() => {
+                job.cancel();
+            });
+        }, 10000);
     });
 
     const shutdown = async (signal: string) => {
+        shutdownTasks.forEach(task => task());
+
         if (!context.isInit){
             console.log('Abort shutdown handler due to incomplete initialization');
             process.exit(0);
         }
 
         console.log(`Received ${signal}, shutting down...`);
-
-        try {
-            const shutdownMessage = `Shutting down @ ${currentTime()} (session ${config.initId}) :wave:`;
-            const currentState = await getCurrentState() ;
-            if (currentState) {
-                const closingMessage = await createSessionRebuildFinalMessage(
-                    `Shutting down @ ${currentTime()} (session ${config.initId}) :wave:`,
-                    currentState
-                );
-                await logMessage(
-                    logConfig,
-                    closingMessage  
-                );
-            } else {
-                await logMessage(
-                    logConfig,
-                    shutdownMessage
-                );
-            }
-        } catch (error) {
-            console.error('Failed to send shutdown message:', error);
-        }
+        await sendPersistenceMessage('Shutting down');
 
         client.destroy();
         process.exit(0);
