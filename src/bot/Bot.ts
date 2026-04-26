@@ -147,11 +147,12 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     let counterLock = false;
     client.on(Events.MessageCreate, async (message) => {
         if (!counterLock && !message.author.bot && message.author.id !== config.DISCORD_BOT_ID) {
-            try {
-                counterLock = true;
+            const channel = message.channel;
 
-                const channel = message.channel;
-                if (channel.isTextBased() && channel.isSendable() && channel.id === config.COUNTER_TEXT_CHANNEL_ID) {
+            // Counting game
+            if (channel.isTextBased() && channel.isSendable() && channel.id === config.COUNTER_TEXT_CHANNEL_ID) {
+                try {
+                    counterLock = true;
                     const messageContent = message.content.trim();
                     if (messageContent && Number.isFinite(+messageContent) && Number.isSafeInteger(+messageContent)) {
                         const messageNumber = Number(messageContent);
@@ -160,32 +161,40 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                             return;
                         }
     
-                        const expectedNumber = currentState.counter ? currentState.counter.lastNumber + 1 : 0;
-    
-                        if (messageNumber !== expectedNumber) {
-                            await channel.sendTyping();
-                            await Promise.all([
-                                setCurrentState({ ...currentState, counter: undefined }),
-                                message.reply('You replied with the wrong number. Starting from 0')
-                            ]);
-                            return;
+                        const failureRules = [
+                            {
+                                message: 'You replied with the wrong number. Restarting from 0',
+                                rule: () => {
+                                    const expectedNumber = currentState.counter ? currentState.counter.lastNumber + 1 : 0;
+                                    return messageNumber !== expectedNumber;
+                                }
+                            },
+                            {
+                                message: 'Someone else must try. Restarting from 0',
+                                rule: () => {
+                                    return currentState.counter?.lastAuthor === message.author.id;
+                                }
+                            },
+                        ];
+
+                        for (const failureRule of failureRules) {
+                            if (failureRule.rule()) {
+                                // Fail
+                                await channel.sendTyping();
+                                await Promise.all([
+                                    setCurrentState({ ...currentState, counter: undefined }),
+                                    message.reply(failureRule.message)
+                                ]);
+                                return;
+                            }
                         }
     
-                        if (currentState.counter?.lastAuthor === message.author.id) {
-                            await channel.sendTyping();
-                            await Promise.all([
-                                setCurrentState({ ...currentState, counter: undefined }),
-                                message.reply('Someone else must try. Starting from 0')
-                            ]);
-                            return;
-                        }
-    
+                        // Success
                         await setCurrentState({ ...currentState, counter: { lastNumber: messageNumber, lastAuthor: message.author.id } });
                     }
+                } finally {
+                    counterLock = false;
                 }
-
-            } finally {
-                counterLock = false;
             }
         }
     });
