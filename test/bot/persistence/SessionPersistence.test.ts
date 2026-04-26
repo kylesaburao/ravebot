@@ -8,7 +8,7 @@ import {
 } from '../../../src/bot/persistence/SessionPersistence';
 
 describe('SessionPersistence', () => {
-    const state: SessionState = { sessionId: 'abc-123', generation: 0 };
+    const state: SessionState = { stateId: 'stateId', sessionId: 'abc-123', generation: 0 };
 
     describe('createSessionRebuildContentMessage', () => {
         it('returns a non-empty base64 string', async () => {

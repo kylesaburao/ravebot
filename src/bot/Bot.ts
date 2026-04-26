@@ -11,8 +11,9 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     const startUpTime = Date.now();
     validateConfig(config);
 
-    const context = {
-        isInit: false
+    const instanceMetadata = {
+        isInit: false,
+        counterLock: false
     };
 
     const client = new Client({
@@ -28,7 +29,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         try {
             console.log('Persisting in-memory state');
 
-            const shutdownMessage = `${reason} @ ${currentTime()} (session ${config.initId}) :wave:`;
+            const shutdownMessage = `${reason} @ ${currentTime()} (session ${config.initId})`;
             const currentState = await getCurrentState() ;
             if (currentState) {
                 const closingMessage = await createSessionRebuildFinalMessage(
@@ -51,7 +52,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     };
 
     client.once(Events.ClientReady, async (readyClient) => {
-        context.isInit = true;
+        instanceMetadata.isInit = true;
         
         const systemChannel = await client.channels.fetch(config.SYSTEM_TEXT_CHANNEL_ID);
 
@@ -91,7 +92,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         const readyTime = Date.now();
         const timeTook = readyTime - startUpTime;
 
-        const activationMessage = `ravebot is ready @ ${currentTime()}. Logged in as ${readyClient.user.tag} and took ${timeTook} ms. :wave:`;
+        const activationMessage = `ravebot is ready @ ${currentTime()}. Logged in as ${readyClient.user.tag} and took ${timeTook} ms.`;
         const currentState = await getCurrentState();
         const finalActivationMessage = [
             activationMessage,
@@ -129,7 +130,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     const shutdown = async (signal: string) => {
         shutdownTasks.forEach(task => task());
 
-        if (!context.isInit){
+        if (!instanceMetadata.isInit){
             console.log('Abort shutdown handler due to incomplete initialization');
             process.exit(0);
         }
@@ -144,15 +145,14 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     process.once('SIGTERM', () => shutdown('SIGTERM'));
     process.once('SIGINT', () => shutdown('SIGINT'));
 
-    let counterLock = false;
     client.on(Events.MessageCreate, async (message) => {
-        if (!counterLock && !message.author.bot && message.author.id !== config.DISCORD_BOT_ID) {
+        if (!message.author.bot && message.author.id !== config.DISCORD_BOT_ID) {
             const channel = message.channel;
 
             // Counting game
-            if (channel.isTextBased() && channel.isSendable() && channel.id === config.COUNTER_TEXT_CHANNEL_ID) {
+            if (!instanceMetadata.counterLock && channel.isTextBased() && channel.isSendable() && channel.id === config.COUNTER_TEXT_CHANNEL_ID) {
                 try {
-                    counterLock = true;
+                    instanceMetadata.counterLock = true;
                     const messageContent = message.content.trim();
                     if (messageContent && Number.isFinite(+messageContent) && Number.isSafeInteger(+messageContent)) {
                         const messageNumber = Number(messageContent);
@@ -163,14 +163,14 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     
                         const failureRules = [
                             {
-                                message: 'You replied with the wrong number. Restarting from 0',
+                                message: 'You replied with the wrong number. Restarting from 0.',
                                 rule: () => {
                                     const expectedNumber = currentState.counter ? currentState.counter.lastNumber + 1 : 0;
                                     return messageNumber !== expectedNumber;
                                 }
                             },
                             {
-                                message: 'Someone else must try. Restarting from 0',
+                                message: 'Someone else must try. Restarting from 0.',
                                 rule: () => {
                                     return currentState.counter?.lastAuthor === message.author.id;
                                 }
@@ -193,7 +193,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                         await setCurrentState({ ...currentState, counter: { lastNumber: messageNumber, lastAuthor: message.author.id } });
                     }
                 } finally {
-                    counterLock = false;
+                    instanceMetadata.counterLock = false;
                 }
             }
         }

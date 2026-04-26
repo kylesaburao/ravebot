@@ -1,5 +1,6 @@
 import { promisify } from "util";
 import { gzip, gunzip } from "zlib";
+import { randomUUID } from 'crypto';
 
 const asyncGzip = promisify(gzip);
 const asyncGunzip = promisify(gunzip);
@@ -7,6 +8,7 @@ const UNKNOWN_VALUE = '';
 export const REBUILD_STATE_HEADER = `\`IN-MEMORY STATE:\``;
 
 export interface SessionState {
+    stateId: string;
     sessionId: string;
     generation: number;
     counter?: {
@@ -24,8 +26,11 @@ export const getCurrentState = async (): Promise<SessionState | undefined> => {
     return Promise.resolve(state);
 };
 
-export const setCurrentState = async (updatedState: SessionState) => {
-    currentState = { ...updatedState };
+export const setCurrentState = async (updatedState: Omit<SessionState, 'stateId'>) => {
+    currentState = {
+        ...updatedState,
+        stateId: randomUUID()
+    };
 };
 
 export const createSessionRebuildContentMessage = async (content: SessionState): Promise<string> => {
@@ -60,6 +65,9 @@ export const reconstructSessionRebuildContent = async (compressedState: string):
     }
     if (!rebuiltContent.generation) {
         rebuiltContent.generation = 0;
+    }
+    if (!rebuiltContent.stateId) {
+        rebuiltContent.stateId = randomUUID();
     }
 
     return rebuiltContent;
