@@ -6,12 +6,13 @@ export const enum LogLevel {
     ERROR
 };
 
-export const formatLogMessage = (config: {level: LogLevel, sessionId: string}, message: string) => {
+export const formatLogMessage = (config: { level: LogLevel, sessionId: string, hasDivider?: boolean }, message: string) => {
+    const splitHeader = config.hasDivider ? '================================================================\n' : '';
     const errorIndicator = config.level === LogLevel.ERROR ? `**[ERROR]** ` : ''
-    return `**[SYSTEM]** ${errorIndicator}(*session=${config.sessionId}*): ${message}`;
+    return `${splitHeader}**[SYSTEM]** ${errorIndicator}(*session=${config.sessionId}*): ${message}`;
 };
 
-export const logMessage = async (config: {level: LogLevel, sessionId: string, targetChannel?: { id: string, client: Client }}, message: string) => {
+export const logMessage = async (config: { level: LogLevel, sessionId: string, targetChannel?: { id: string, client: Client }, hasDivider?: boolean }, message: string) => {
     const formattedMessage = formatLogMessage(config, message);
     switch (config.level) {
         case LogLevel.DEBUG:

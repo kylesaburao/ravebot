@@ -25,27 +25,32 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     });
     const logConfig = { level: LogLevel.INFO, sessionId: config.initId, targetChannel: { client, id: config.SYSTEM_TEXT_CHANNEL_ID }};
 
-    const sendPersistenceMessage = async (reason: 'Shutting down' | 'Running backup') => {
+    const persistState = async (reason: 'Shutting down' | 'Running backup', lastPersistedStateId?: string) => {
         try {
             console.log('Persisting in-memory state');
 
             const shutdownMessage = `${reason} @ ${currentTime()}`;
             const currentState = await getCurrentState() ;
+            const currentStateId = currentState ? currentState.stateId : undefined;
             if (currentState) {
-                const closingMessage = await createSessionRebuildFinalMessage(
-                    shutdownMessage,
-                    currentState
-                );
-                await logMessage(
-                    logConfig,
-                    closingMessage  
-                );
+                if (!(lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
+                    const closingMessage = await createSessionRebuildFinalMessage(
+                        shutdownMessage,
+                        currentState
+                    );
+                    await logMessage(
+                        logConfig,
+                        closingMessage  
+                    );
+                }
             } else {
                 await logMessage(
                     logConfig,
                     shutdownMessage
                 );
             }
+
+            return currentStateId;
         } catch (error) {
             console.error('Failed to send shutdown message:', error);
         }
@@ -92,20 +97,20 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         const readyTime = Date.now();
         const timeTook = readyTime - startUpTime;
 
-        const activationMessage = `ravebot is ready @ ${currentTime()}. Logged in as ${readyClient.user.tag} and took ${timeTook} ms.`;
+        const activationMessage = `ravebot is ready @ ${currentTime()}.\nLogged in as ${readyClient.user.tag} and took ${timeTook} ms.`;
         const currentState = await getCurrentState();
         const finalActivationMessage = [
             activationMessage,
             ...(currentState ? [
                 '',
-                '`RECONSTRUCTED IN-MEMORY STATE FROM LAST KNOWN SHUTDOWN:`',
+                '`RECONSTRUCTED FROM LAST KNOWN SHUTDOWN:`',
                 `\`${JSON.stringify(currentState)}\``
             ] : [])
         ].join('\n');
 
         if (currentState) {
             await logMessage(
-                logConfig,
+                { ...logConfig, hasDivider: true },
                 finalActivationMessage
             );
             await setCurrentState({
@@ -124,8 +129,13 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
             type: ActivityType.Custom
         });
 
-        setTimeout(() => {
-            const job = schedule.scheduleJob('30 * * * *', () => sendPersistenceMessage('Running backup'));
+        setTimeout(async () => {
+            let lastBackupStateId: string | undefined;
+            const backupInterval = '10';
+            await logMessage(logConfig, `Starting delta backup with interval ${backupInterval} minutes`);
+            const job = schedule.scheduleJob(`*/${backupInterval} * * * *`, async () => {
+                lastBackupStateId = await persistState('Running backup', lastBackupStateId);
+            });
             shutdownTasks.push(() => {
                 job.cancel();
             });
@@ -141,7 +151,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         }
 
         console.log(`Received ${signal}, shutting down...`);
-        await sendPersistenceMessage('Shutting down');
+        await persistState('Shutting down');
 
         client.destroy();
         process.exit(0);
