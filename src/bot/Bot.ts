@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits } from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
 import { type BotConfig, validateConfig } from "./types/BotConfig";
 import { LogLevel, logMessage } from "./utils/LogFormatter";
 import { createSessionRebuildFinalMessage, getCurrentState, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage, SessionState, setCurrentState } from "./persistence/SessionPersistence";
@@ -29,7 +29,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         try {
             console.log('Persisting in-memory state');
 
-            const shutdownMessage = `${reason} @ ${currentTime()} (session ${config.initId})`;
+            const shutdownMessage = `${reason} @ ${currentTime()}`;
             const currentState = await getCurrentState() ;
             if (currentState) {
                 const closingMessage = await createSessionRebuildFinalMessage(
@@ -118,6 +118,11 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 generation: 0
             });
         }
+
+        readyClient.user.setActivity({
+            name: 'Botting',
+            type: ActivityType.Custom
+        });
 
         setTimeout(() => {
             const job = schedule.scheduleJob('30 * * * *', () => sendPersistenceMessage('Running backup'));
