@@ -59,38 +59,54 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     client.once(Events.ClientReady, async (readyClient) => {
         instanceMetadata.isInit = true;
         
+        await logMessage({ ...logConfig, hasDivider: true });
         const systemChannel = await client.channels.fetch(config.SYSTEM_TEXT_CHANNEL_ID);
 
         if (systemChannel && systemChannel.isTextBased()) {
-            const systemMessagesCollection = await systemChannel.messages.fetch({
-                limit: 25,
-            });
-            const relevantPersistenceMessages = [...systemMessagesCollection.values()].filter(message => {
-                const isRelevantAuthor = message.author.bot
-                    && message.author.id === config.DISCORD_BOT_ID ;
-                if (!isRelevantAuthor) {
-                    return false;
-                }
-                const lines = message.content.split('\n');
-                if (lines.length < 2) {
-                    return false;
-                }
-                return lines[lines.length - 2] === REBUILD_STATE_HEADER;
-            }).map(message => {
-                return {
-                    createdTimestamp: message.createdTimestamp,
-                    content: message.content
-                };
-            }).sort((a, b) => {
-                return b.createdTimestamp - a.createdTimestamp;
-            });
+            const MAX_RECOVERY_PAGES = 100;
+            let recoveryContent: string | undefined;
+            let cursorMessageId: string | undefined;
 
-            if (relevantPersistenceMessages.length > 0) {
-                const mostRecentMessage = relevantPersistenceMessages[0];
-                const persistedState = await reconstructSessionStateFromFinalMessage(
-                    mostRecentMessage.content
+            for (let page = 0; recoveryContent === undefined && page < MAX_RECOVERY_PAGES; page++) {
+                const fetchSize = 100;
+                const currentCollection = await systemChannel.messages.fetch({
+                    limit: fetchSize,
+                    ...(cursorMessageId && { before: cursorMessageId })
+                });
+                await logMessage(logConfig, `Instance rebuild fetched ${currentCollection.size} messages on page ${page}`);
+                if (currentCollection.size === 0) {
+                    break
+                };
+
+                const sorted = [...currentCollection.values()].sort((a, b) =>
+                    b.createdTimestamp - a.createdTimestamp
                 );
-                await setCurrentState(persistedState);
+
+                const messageMatch = sorted.find(message =>
+                    message.author.bot
+                    && message.author.id === config.DISCORD_BOT_ID
+                    && message.content.split('\n').at(-2) === REBUILD_STATE_HEADER
+                );
+
+                if (messageMatch) {
+                    recoveryContent = messageMatch.content;
+                    await logMessage(logConfig, 'Instance rebuild located backup :tada:');
+                } else {
+                    cursorMessageId = sorted[sorted.length - 1].id;
+                    await logMessage(logConfig, 'Instance rebuild failed to locate backup. Waiting 5 seconds.');
+                    await new Promise((resolve) => {
+                        setTimeout(resolve, 5000);
+                    });
+                }
+            }
+
+            if (recoveryContent !== undefined) {
+                try {
+                    const persistedState = await reconstructSessionStateFromFinalMessage(recoveryContent);
+                    await setCurrentState(persistedState);
+                } catch (error) {
+                    console.error('Failed to reconstruct session state:', error);
+                }
             }
         }
 
@@ -110,7 +126,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
         if (currentState) {
             await logMessage(
-                { ...logConfig, hasDivider: true },
+                { ...logConfig },
                 finalActivationMessage
             );
             await setCurrentState({
@@ -131,9 +147,9 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
         setTimeout(async () => {
             let lastBackupStateId: string | undefined;
-            const backupInterval = '10';
-            await logMessage(logConfig, `Starting delta backup with interval ${backupInterval} minutes`);
-            const job = schedule.scheduleJob(`*/${backupInterval} * * * *`, async () => {
+            const backupMinute = '59';
+            await logMessage(logConfig, `Starting delta backup at the ${backupMinute}th minute of the hour`);
+            const job = schedule.scheduleJob(`${backupMinute} * * * *`, async () => {
                 lastBackupStateId = await persistState('Running backup', lastBackupStateId);
             });
             shutdownTasks.push(() => {
