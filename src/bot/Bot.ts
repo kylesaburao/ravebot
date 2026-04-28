@@ -2,11 +2,12 @@ import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
 import { type BotConfig, validateConfig } from "./types/BotConfig";
 import { LogLevel, logMessage } from "./utils/LogFormatter";
 import { createSessionRebuildFinalMessage, InstanceManager, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage } from "./persistence/SessionPersistence";
-import schedule from 'node-schedule';
 import { registerCounterGame } from "./events/CounterGame";
 import { EventRegister } from "./events/types/EventTypes";
+import nodeCron from "node-cron";
 
-const getCurrentTime = () => new Date().toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });
+const getDateLocaleString = (date: Date) => date.toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });
+const getCurrentTime = () => getDateLocaleString(new Date());
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
     const shutdownTasks: Function[] = [];
@@ -31,8 +32,9 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
             const shutdownMessage = `${reason} @ ${getCurrentTime()}`;
             const currentState = await instanceManager.getCurrentState();
             const currentStateId = currentState ? currentState.stateId : undefined;
+            let didRun = false;
             if (currentState) {
-                if (!(lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
+                if (!(reason === 'Running backup' && lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
                     const closingMessage = await createSessionRebuildFinalMessage(
                         shutdownMessage,
                         currentState
@@ -41,15 +43,17 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                         logConfig,
                         closingMessage  
                     );
+                    didRun = true;
                 }
             } else {
                 await logMessage(
                     logConfig,
                     shutdownMessage
                 );
+                didRun = true;
             }
 
-            return currentStateId;
+            return { currentStateId, didRun };
         } catch (error) {
             console.error('Failed to send shutdown message:', error);
         }
@@ -138,14 +142,29 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
         setTimeout(async () => {
             let lastBackupStateId: string | undefined = (await instanceManager.getCurrentState())?.stateId;
-            const backupMinute = '59';
 
-            await logMessage(logConfig, `Starting delta backup at the ${backupMinute}th minute of the hour`);
-            const job = schedule.scheduleJob(`${backupMinute} * * * *`, async () => {
-                lastBackupStateId = await persistState('Running backup', lastBackupStateId);
+            const getNextRunMessage = (date: Date | null) => date
+                ? `Next scheduled backup attempt @ ${getDateLocaleString(date)}.`
+                : ''
+
+            const minuteInterval = '15';
+            const backupTask = nodeCron.schedule(`*/${minuteInterval} * * * *`, async () => {
+                const { currentStateId: backupStateId, didRun } = await persistState('Running backup', lastBackupStateId) || {};
+                lastBackupStateId = backupStateId;
+                const nextRunMessage = getNextRunMessage(backupTask.getNextRun());
+                if (didRun && nextRunMessage) {
+                    await logMessage(logConfig, nextRunMessage);
+                }
             });
+
+            const startupRunMessage = getNextRunMessage(backupTask.getNextRun());
+            const message = [
+                `Started backup at ${minuteInterval} minute intervals.`,
+                ...(startupRunMessage ? [startupRunMessage] : [])
+            ].join('\n');
+            await logMessage(logConfig, message);
             shutdownTasks.push(() => {
-                job.cancel();
+                backupTask.destroy();
             });
         }, 0);
     });
