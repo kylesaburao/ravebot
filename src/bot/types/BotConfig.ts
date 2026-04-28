@@ -6,6 +6,10 @@ export interface BotConfig {
     initId: string;
 }
 
+export interface InstanceMetadata {
+    isInit: boolean
+}
+
 export const validateConfig = (config: BotConfig) => {
     if (!config.DISCORD_BOT_TOKEN) {
         throw new Error('DISCORD_BOT_TOKEN must be set');

@@ -7,10 +7,10 @@ export const enum LogLevel {
 };
 
 export const formatLogMessage = (config: { level: LogLevel, sessionId: string, hasDivider?: boolean }, message?: string) => {
-    const splitHeader = config.hasDivider ? '================================================================\n' : '';
+    const splitHeader = config.hasDivider ? '================================================================================\n' : '';
     const errorIndicator = config.level === LogLevel.ERROR ? `**[ERROR]** ` : ''
     if (message) {
-        return `${splitHeader}**[SYSTEM]** ${errorIndicator}(*session=${config.sessionId}*): ${message}`;
+        return `${splitHeader}**[SYSTEM]** ${errorIndicator}(*session=${config.sessionId}*):\n${message}`;
     } else {
         return `${splitHeader}`;
     }

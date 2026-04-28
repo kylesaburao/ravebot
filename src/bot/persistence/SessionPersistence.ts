@@ -1,6 +1,7 @@
 import { promisify } from "util";
 import { gzip, gunzip } from "zlib";
 import { randomUUID } from 'crypto';
+import { InstanceMetadata } from "../types/BotConfig";
 
 const asyncGzip = promisify(gzip);
 const asyncGunzip = promisify(gunzip);
@@ -17,21 +18,69 @@ export interface SessionState {
     }
 }
 
-let currentState: SessionState | undefined = undefined;
+export class InstanceManager {
+    private static _state: SessionState | undefined;
+    private static _metadata: InstanceMetadata;
+    private static _lockChain: Promise<void> = Promise.resolve();
 
-export const getCurrentState = async (): Promise<SessionState | undefined> => {
-    const state: SessionState | undefined = currentState
-        ? { ...currentState }
-        : undefined;
-    return Promise.resolve(state);
-};
+    public constructor() {
+        if (!InstanceManager._metadata) {
+            InstanceManager._metadata = {
+                isInit: false
+            };
+        }
+    }
 
-export const setCurrentState = async (updatedState: Omit<SessionState, 'stateId'>) => {
-    currentState = {
-        ...updatedState,
-        stateId: randomUUID()
-    };
-};
+    getMetadata(): InstanceMetadata {
+        return { ...InstanceManager._metadata };
+    }
+
+    setMetadata(updatedMetadata: Partial<InstanceMetadata>) {
+        InstanceManager._metadata = { ...InstanceManager._metadata, ...updatedMetadata };
+    }
+
+    async getCurrentState(): Promise<SessionState | undefined> {
+        const state: SessionState | undefined = InstanceManager._state
+            ? { ...InstanceManager._state }
+            : undefined;
+        return Promise.resolve(state);
+    }
+
+    private async setCurrentState(updatedState: Partial<Omit<SessionState, 'stateId'>>) {
+        const merged = { ...InstanceManager._state, ...updatedState };
+        if (merged.sessionId === undefined || merged.generation === undefined) {
+            throw new Error('sessionId and generation are required when no state exists');
+        }
+        InstanceManager._state = { ...(merged as SessionState), stateId: randomUUID() };
+    }
+
+    async runAtomicStateUpdate(
+        callback: (
+            currentState: SessionState | undefined,
+            writeState: (update: Partial<Omit<SessionState, 'stateId'>>) => Promise<void>
+        ) => Promise<void>
+    ): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            InstanceManager._lockChain = InstanceManager._lockChain.then(async () => {
+                try {
+                    const currentState = await this.getCurrentState();
+                    let didWriteOccur = false;
+                    await callback(currentState, async (update) => {
+                        if (!didWriteOccur) {
+                            didWriteOccur = true;
+                            await this.setCurrentState(update);
+                        } else {
+                            throw new Error('Cannot write more than once');
+                        }
+                    });
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    }
+}
 
 export const createSessionRebuildContentMessage = async (content: SessionState): Promise<string> => {
     const message = JSON.stringify(content);
