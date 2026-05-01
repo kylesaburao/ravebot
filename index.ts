@@ -9,6 +9,7 @@ main({
     DISCORD_BOT_ID: process.env.DISCORD_BOT_ID ?? '',
     SYSTEM_TEXT_CHANNEL_ID: process.env.SYSTEM_TEXT_CHANNEL_ID ?? '',
     COUNTER_TEXT_CHANNEL_ID: process.env.COUNTER_TEXT_CHANNEL_ID ?? '',
+    DEBUG_TEXT_CHANNEL_ID: process.env.DEBUG_TEXT_CHANNEL_ID ?? '',
     initId: initId
 }).catch(error => {
     console.error('A critical fault was encountered:', error);

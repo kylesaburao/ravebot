@@ -2,6 +2,8 @@ import { promisify } from "util";
 import { gzip, gunzip } from "zlib";
 import { randomUUID } from 'crypto';
 import { InstanceMetadata } from "../types/BotConfig";
+import { TaskQueue } from "../../utils/TaskQueue";
+import { EventBus, EventCallback } from "../../utils/EventSignaller";
 
 const asyncGzip = promisify(gzip);
 const asyncGunzip = promisify(gunzip);
@@ -22,6 +24,8 @@ export class InstanceManager {
     private static _state: SessionState | undefined;
     private static _metadata: InstanceMetadata;
     private static _lockChain: Promise<void> = Promise.resolve();
+    private static _taskQueues: Map<string, TaskQueue> = new Map();
+    private static _eventBus: Map<string, EventBus> = new Map();
 
     public constructor() {
         if (!InstanceManager._metadata) {
@@ -29,6 +33,28 @@ export class InstanceManager {
                 isInit: false
             };
         }
+    }
+
+    registerTaskQueue(queueId: string, concurrency: number, cooldownPeriod: number = 0) {
+        if (InstanceManager._taskQueues.has(queueId)) {
+            throw new Error(`Cannot reregister task queue ID \'${queueId}\'`);
+        }
+        InstanceManager._taskQueues.set(queueId, new TaskQueue(concurrency, cooldownPeriod));
+    }
+
+    getTaskQueue(queueId: string): TaskQueue | undefined {
+        return InstanceManager._taskQueues.get(queueId);
+    }
+
+    registerEventBus(eventBusId: string) {
+        if (InstanceManager._eventBus.has(eventBusId)) {
+            throw new Error(`Cannot reregister event bus ID \'${eventBusId}\'`);
+        }
+        InstanceManager._eventBus.set(eventBusId, new EventBus());
+    }
+
+    getEventBus(eventBusId: string) {
+        return InstanceManager._eventBus.get(eventBusId);
     }
 
     getMetadata(): InstanceMetadata {

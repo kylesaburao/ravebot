@@ -8,12 +8,7 @@
 
 ## Configuration
 
-Copy `.env.template` to `.env` and fill in the values:
-
-```
-DISCORD_BOT_TOKEN=your_bot_token_here
-SYSTEM_TEXT_CHANNEL_ID=your_channel_id_here
-```
+Copy `.env.template` to `.env` and fill in the values.
 
 ## Running
 

@@ -5,9 +5,9 @@ import { createSessionRebuildFinalMessage, InstanceManager, REBUILD_STATE_HEADER
 import { registerCounterGame } from "./events/CounterGame";
 import { EventRegister } from "./events/types/EventTypes";
 import nodeCron from "node-cron";
-
-const getDateLocaleString = (date: Date) => date.toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });
-const getCurrentTime = () => getDateLocaleString(new Date());
+import { BackupReason, EventBackupBusIds, EventBusId, TaskQueueId } from "./types/Constants";
+import { registerDebugHandlers } from "./events/DebugHandler";
+import { getCurrentTime, getDateLocaleString } from "./utils/TimeUtils";
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
     const shutdownTasks: Function[] = [];
@@ -15,6 +15,10 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     validateConfig(config);
 
     const instanceManager = new InstanceManager();
+    instanceManager.registerTaskQueue(TaskQueueId.SYNCHRONOUS, 1);
+    instanceManager.registerTaskQueue(TaskQueueId.BACKUP, 1);
+    instanceManager.registerTaskQueue(TaskQueueId.DEBUG, 1, 1000);
+    instanceManager.registerEventBus(EventBusId.BACKUP_BUS);
 
     const client = new Client({
         intents: [
@@ -25,16 +29,14 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     });
     const logConfig = { level: LogLevel.INFO, sessionId: config.initId, targetChannel: { client, id: config.SYSTEM_TEXT_CHANNEL_ID }};
 
-    const persistState = async (reason: 'Shutting down' | 'Running backup', lastPersistedStateId?: string) => {
+    const persistState = async (reason: string, lastPersistedStateId?: string) => {
         try {
-            console.log('Persisting in-memory state');
-
             const shutdownMessage = `${reason} @ ${getCurrentTime()}`;
             const currentState = await instanceManager.getCurrentState();
             const currentStateId = currentState ? currentState.stateId : undefined;
             let didRun = false;
             if (currentState) {
-                if (!(reason === 'Running backup' && lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
+                if (reason === BackupReason.MANUAL || !(reason === BackupReason.AUTOMATIC && lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
                     const closingMessage = await createSessionRebuildFinalMessage(
                         shutdownMessage,
                         currentState
@@ -45,7 +47,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                     );
                     didRun = true;
                 }
-            } else {
+            } else if (reason === BackupReason.SHUTDOWN) {
                 await logMessage(
                     logConfig,
                     shutdownMessage
@@ -147,14 +149,32 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 ? `Next scheduled backup attempt @ ${getDateLocaleString(date)}.`
                 : ''
 
-            const minuteInterval = '15';
-            const backupTask = nodeCron.schedule(`*/${minuteInterval} * * * *`, async () => {
-                const { currentStateId: backupStateId, didRun } = await persistState('Running backup', lastBackupStateId) || {};
-                lastBackupStateId = backupStateId;
-                const nextRunMessage = getNextRunMessage(backupTask.getNextRun());
-                if (didRun && nextRunMessage) {
-                    await logMessage(logConfig, nextRunMessage);
+            const minuteInterval = '5';
+            const backupTaskQueue = instanceManager.getTaskQueue(TaskQueueId.BACKUP);
+            const backupEventBus = instanceManager.getEventBus(EventBusId.BACKUP_BUS);
+            if (!backupTaskQueue || !backupEventBus) {
+                throw new Error('Failed to initialize the backup task queue');
+            }
+
+            backupEventBus.on(EventBackupBusIds.RUN_BACKUP, async (params) => {
+                let reason = BackupReason.AUTOMATIC;
+                if (params?.['reason'] === BackupReason.MANUAL) {
+                    reason = BackupReason.MANUAL;
                 }
+
+                // no overlapping writes to the channel
+                await backupTaskQueue.schedule(async () => {
+                    const { currentStateId: backupStateId, didRun } = await persistState(reason, lastBackupStateId) || {};
+                    lastBackupStateId = backupStateId;
+                    const nextRunMessage = getNextRunMessage(backupTask.getNextRun());
+                    if (didRun && nextRunMessage) {
+                        await logMessage(logConfig, nextRunMessage);
+                    }
+                });
+            });
+
+            const backupTask = nodeCron.schedule(`*/${minuteInterval} * * * *`, async () => {
+                await backupEventBus.notify(EventBackupBusIds.RUN_BACKUP);
             });
 
             const startupRunMessage = getNextRunMessage(backupTask.getNextRun());
@@ -188,7 +208,8 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     process.once('SIGINT', () => shutdown('SIGINT'));
 
     const eventRegisters: EventRegister[] = [
-        registerCounterGame
+        registerCounterGame,
+        registerDebugHandlers
     ];
     eventRegisters.forEach(eventRegister => eventRegister(client, config, instanceManager));
 

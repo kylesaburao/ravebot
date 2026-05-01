@@ -3,6 +3,7 @@ export interface BotConfig {
     DISCORD_BOT_ID: string;
     SYSTEM_TEXT_CHANNEL_ID: string;
     COUNTER_TEXT_CHANNEL_ID: string;
+    DEBUG_TEXT_CHANNEL_ID: string;
     initId: string;
 }
 
@@ -22,6 +23,9 @@ export const validateConfig = (config: BotConfig) => {
     }
     if (!config.COUNTER_TEXT_CHANNEL_ID) {
         throw new Error('COUNTER_TEXT_CHANNEL_ID must be set');
+    }
+    if (!config.DEBUG_TEXT_CHANNEL_ID) {
+        throw new Error('DEBUG_TEXT_CHANNEL_ID must be set');
     }
     if (!config.initId) {
         throw new Error('initId must be set');
