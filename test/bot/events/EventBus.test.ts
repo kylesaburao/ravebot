@@ -28,4 +28,26 @@ describe('Eventbus', () => {
         expect(callback1).toHaveBeenCalledWith({ key: 'value' });
         expect(callback2).toHaveBeenCalledWith({ key: 'value' });
     });
+
+    it('removes callbacks correctly', async () => {
+        const bus = new EventBus();
+        const callback1 = jest.fn().mockResolvedValue(undefined);
+        const callback2 = jest.fn().mockResolvedValue(undefined);
+        bus.on('test-event', callback1);
+        bus.on('test-event', callback2);
+        bus.remove('test-event', callback1);
+        await bus.notify('test-event', { key: 'value' });
+        expect(callback1).not.toHaveBeenCalled();
+        expect(callback2).toHaveBeenCalledWith({ key: 'value' });
+    });
+
+    it('issues callback once when registered with once()', async () => {
+        const bus = new EventBus();
+        const callback = jest.fn().mockResolvedValue(undefined);
+        bus.once('test-event', callback);
+        await bus.notify('test-event', { key: 'value' });
+        await bus.notify('test-event', { key: 'value' });
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback).toHaveBeenCalledWith({ key: 'value' });
+    });
 });

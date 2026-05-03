@@ -1,4 +1,4 @@
-import { Client } from "discord.js";
+import { type Client } from "discord.js";
 
 export const enum LogLevel {
     INFO,
@@ -8,7 +8,7 @@ export const enum LogLevel {
 
 export const formatLogMessage = (config: { level: LogLevel, sessionId: string, hasDivider?: boolean }, message?: string) => {
     const splitHeader = config.hasDivider ? '================================================================================\n' : '';
-    const errorIndicator = config.level === LogLevel.ERROR ? `**[ERROR]** ` : ''
+    const errorIndicator = config.level === LogLevel.ERROR ? `**[ERROR]** ` : '';
     if (message) {
         return `${splitHeader}**[SYSTEM]** ${errorIndicator}(*session=${config.sessionId}*):\n${message}`;
     } else {
@@ -25,9 +25,9 @@ export const logMessage = async (config: { level: LogLevel, sessionId: string, t
                 break;
             case LogLevel.INFO:
                 console.info(formattedMessage);
-                break
+                break;
             case LogLevel.ERROR:
-                console.error(formattedMessage)
+                console.error(formattedMessage);
                 break;
         }
     

@@ -9,12 +9,6 @@ import {
 } from '../../../src/bot/persistence/SessionPersistence';
 
 describe('InstanceManager', () => {
-    beforeEach(() => {
-        (InstanceManager as any)._state = undefined;
-        (InstanceManager as any)._metadata = { isInit: false };
-        (InstanceManager as any)._lockChain = Promise.resolve();
-    });
-
     describe('getMetadata / setMetadata', () => {
         it('returns default metadata on first construction', () => {
             const manager = new InstanceManager();
@@ -32,13 +26,6 @@ describe('InstanceManager', () => {
             const manager = new InstanceManager();
             manager.setMetadata({ isInit: true });
             expect(manager.getMetadata()).toEqual({ isInit: true });
-        });
-
-        it('is shared across instances', () => {
-            const a = new InstanceManager();
-            const b = new InstanceManager();
-            a.setMetadata({ isInit: true });
-            expect(b.getMetadata().isInit).toBe(true);
         });
     });
 
@@ -85,12 +72,6 @@ describe('InstanceManager', () => {
             expect(state!.generation).toBe(1);
         });
 
-        it('is shared across instances', async () => {
-            const a = new InstanceManager();
-            const b = new InstanceManager();
-            await write(a, { sessionId: 'abc', generation: 0 });
-            expect((await b.getCurrentState())!.sessionId).toBe('abc');
-        });
     });
 
     describe('runStateUpdate', () => {

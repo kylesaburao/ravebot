@@ -1,7 +1,7 @@
 import { promisify } from "util";
 import { gzip, gunzip } from "zlib";
 import { randomUUID } from 'crypto';
-import { InstanceMetadata } from "../types/BotConfig";
+import { type InstanceMetadata } from "../types/BotConfig";
 import { TaskQueue } from "../../utils/TaskQueue";
 import { EventBus } from "../../utils/EventBus";
 
@@ -21,63 +21,64 @@ export interface SessionState {
 }
 
 export class InstanceManager {
-    private static _state: SessionState | undefined;
-    private static _metadata: InstanceMetadata;
-    private static _lockChain: Promise<void> = Promise.resolve();
-    private static _taskQueues: Map<string, TaskQueue> = new Map();
-    private static _eventBus: Map<string, EventBus> = new Map();
+    private _state: SessionState | undefined;
+    private _metadata: InstanceMetadata;
+    private _lockChain: Promise<void>;
+    private _taskQueues: Map<string, TaskQueue>;
+    private _eventBus: Map<string, EventBus>;
 
     public constructor() {
-        if (!InstanceManager._metadata) {
-            InstanceManager._metadata = {
-                isInit: false
-            };
-        }
+        this._metadata = {
+            isInit: false
+        };
+        this._lockChain = Promise.resolve();
+        this._taskQueues = new Map();
+        this._eventBus = new Map();
     }
 
     registerTaskQueue(queueId: string, concurrency: number, cooldownPeriod: number = 0) {
-        if (InstanceManager._taskQueues.has(queueId)) {
+        if (this._taskQueues.has(queueId)) {
             throw new Error(`Cannot reregister task queue ID \'${queueId}\'`);
         }
-        InstanceManager._taskQueues.set(queueId, new TaskQueue(concurrency, cooldownPeriod));
+        this._taskQueues.set(queueId, new TaskQueue(concurrency, cooldownPeriod));
     }
 
     getTaskQueue(queueId: string): TaskQueue | undefined {
-        return InstanceManager._taskQueues.get(queueId);
+        return this._taskQueues.get(queueId);
     }
 
     registerEventBus(eventBusId: string) {
-        if (InstanceManager._eventBus.has(eventBusId)) {
+        if (this._eventBus.has(eventBusId)) {
             throw new Error(`Cannot reregister event bus ID \'${eventBusId}\'`);
         }
-        InstanceManager._eventBus.set(eventBusId, new EventBus());
+        this._eventBus.set(eventBusId, new EventBus());
     }
 
     getEventBus(eventBusId: string) {
-        return InstanceManager._eventBus.get(eventBusId);
+        return this._eventBus.get(eventBusId);
     }
 
     getMetadata(): InstanceMetadata {
-        return { ...InstanceManager._metadata };
+        return { ...this._metadata };
     }
 
     setMetadata(updatedMetadata: Partial<InstanceMetadata>) {
-        InstanceManager._metadata = { ...InstanceManager._metadata, ...updatedMetadata };
+        this._metadata = { ...this._metadata, ...updatedMetadata };
     }
 
     async getCurrentState(): Promise<SessionState | undefined> {
-        const state: SessionState | undefined = InstanceManager._state
-            ? { ...InstanceManager._state }
+        const state: SessionState | undefined = this._state
+            ? { ...this._state }
             : undefined;
-        return Promise.resolve(state);
+        return state;
     }
 
     private async setCurrentState(updatedState: Partial<Omit<SessionState, 'stateId'>>) {
-        const merged = { ...InstanceManager._state, ...updatedState };
+        const merged = { ...this._state, ...updatedState };
         if (merged.sessionId === undefined || merged.generation === undefined) {
             throw new Error('sessionId and generation are required when no state exists');
         }
-        InstanceManager._state = { ...(merged as SessionState), stateId: randomUUID() };
+        this._state = { ...(merged as SessionState), stateId: randomUUID() };
     }
 
     async runAtomicStateUpdate(
@@ -87,7 +88,7 @@ export class InstanceManager {
         ) => Promise<void>
     ): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            InstanceManager._lockChain = InstanceManager._lockChain.then(async () => {
+            this._lockChain = this._lockChain.then(async () => {
                 try {
                     const currentState = await this.getCurrentState();
                     let didWriteOccur = false;

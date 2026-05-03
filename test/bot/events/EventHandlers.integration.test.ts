@@ -1,8 +1,8 @@
-import { Client, Events } from 'discord.js';
+import { type Client, Events } from 'discord.js';
 import { onCounterGameMessage } from '../../../src/bot/events/CounterGame';
 import { registerDebugHandlers } from '../../../src/bot/events/DebugHandler';
 import { InstanceManager } from '../../../src/bot/persistence/SessionPersistence';
-import { BotConfig } from '../../../src/bot/types/BotConfig';
+import { type BotConfig } from '../../../src/bot/types/BotConfig';
 import {
     BackupReason,
     EventBackupBusIds,
@@ -22,22 +22,6 @@ const config: BotConfig = {
 
 const PRIOR_AUTHOR = 'alice';
 const NEW_AUTHOR = 'bob';
-
-// InstanceManager owns its state on static fields, so tests share it unless reset.
-const resetInstanceManager = () => {
-    const im = InstanceManager as unknown as {
-        _state: unknown;
-        _metadata: unknown;
-        _lockChain: Promise<void>;
-        _taskQueues: Map<string, unknown>;
-        _eventBus: Map<string, unknown>;
-    };
-    im._state = undefined;
-    im._metadata = undefined;
-    im._lockChain = Promise.resolve();
-    im._taskQueues = new Map();
-    im._eventBus = new Map();
-};
 
 type MessageOverrides = {
     content?: string;
@@ -78,7 +62,6 @@ describe('onCounterGameMessage (integration)', () => {
     let instanceManager: InstanceManager;
 
     beforeEach(async () => {
-        resetInstanceManager();
         instanceManager = new InstanceManager();
         await seedState(instanceManager, { lastNumber: 5, lastAuthor: PRIOR_AUTHOR });
     });
@@ -114,7 +97,6 @@ describe('onCounterGameMessage (integration)', () => {
     });
 
     it('does nothing when state has not been initialised', async () => {
-        resetInstanceManager();
         instanceManager = new InstanceManager();
         const { message, reply } = createMockMessage({
             content: '0',
@@ -168,7 +150,6 @@ describe('registerDebugHandlers (integration)', () => {
     let backupCallback: jest.Mock;
 
     const setUp = ({ registerBackupBus = true }: { registerBackupBus?: boolean } = {}) => {
-        resetInstanceManager();
         instanceManager = new InstanceManager();
 
         backupCallback = jest.fn().mockResolvedValue(undefined);
@@ -200,7 +181,6 @@ describe('registerDebugHandlers (integration)', () => {
     afterEach(() => jest.restoreAllMocks());
 
     it('registers without throwing even when no debug task queue is in the instance manager', () => {
-        resetInstanceManager();
         const fresh = new InstanceManager();
         const client = { on: jest.fn() } as unknown as Client;
         expect(() => registerDebugHandlers(client, config, fresh)).not.toThrow();

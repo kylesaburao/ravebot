@@ -3,10 +3,10 @@ import { TaskQueue } from "../../src/utils/TaskQueue";
 describe('TaskQueue', () => {
     it('Should reject invalid concurrency', () => {
         expect(() => {
-            const taskQueue = new TaskQueue(0);
+            new TaskQueue(0);
         }).toThrow();
         expect(() => {
-            const taskQueue = new TaskQueue(-1);
+            new TaskQueue(-1);
         }).toThrow();
     });
 

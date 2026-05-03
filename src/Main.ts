@@ -1,5 +1,5 @@
 import { initializeBot } from './bot/Bot';
-import { MainConfig } from './types/Config';
+import { type MainConfig } from './types/Config';
 
 export default async function main(config: MainConfig): Promise<void> {
     const currentTime = new Date().toLocaleString('en-US', { timeZone: 'America/Vancouver', timeZoneName: 'short' });

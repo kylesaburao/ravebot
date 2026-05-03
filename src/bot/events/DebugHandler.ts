@@ -1,7 +1,7 @@
-import { Client, Events, Message, OmitPartialGroupDMChannel } from "discord.js";
-import { EventRegister } from "./types/EventTypes";
-import { BotConfig } from "../types/BotConfig";
-import { InstanceManager } from "../persistence/SessionPersistence";
+import { type Client, Events, type Message, type OmitPartialGroupDMChannel } from "discord.js";
+import { type EventRegister } from "./types/EventTypes";
+import { type BotConfig } from "../types/BotConfig";
+import { type InstanceManager } from "../persistence/SessionPersistence";
 import { BackupReason, EventBackupBusIds, EventBusId } from "../types/Constants";
 import { getTranslation } from "../../resources/I18n";
 import { TaskQueue } from "../../utils/TaskQueue";

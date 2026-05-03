@@ -1,7 +1,7 @@
-import { Client, Events, Message, OmitPartialGroupDMChannel } from "discord.js"
-import { BotConfig } from "../types/BotConfig";
-import { InstanceManager, SessionState } from "../persistence/SessionPersistence";
-import { EventRegister } from "./types/EventTypes";
+import { type Client, Events, type Message, type OmitPartialGroupDMChannel } from "discord.js";
+import { type BotConfig } from "../types/BotConfig";
+import { type InstanceManager, type SessionState } from "../persistence/SessionPersistence";
+import { type EventRegister } from "./types/EventTypes";
 import { getTranslation } from "../../resources/I18n";
 
 type CounterGameRule = (actualNumber: number, currentAuthor: string | undefined, lastState: SessionState['counter']) => boolean;
@@ -56,6 +56,10 @@ export const onCounterGameMessage = async (message: OmitPartialGroupDMChannel<Me
 
 export const registerCounterGame: EventRegister = async (client: Client, config: BotConfig, instanceManager: InstanceManager) => {
     client.on(Events.MessageCreate, async (message) => {
-        await onCounterGameMessage(message, config, instanceManager);
+        try {
+            await onCounterGameMessage(message, config, instanceManager);
+        } catch (e) {
+            console.error('An error occurred while processing a counter game message:', e);
+        }
     });
 };

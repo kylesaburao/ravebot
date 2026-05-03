@@ -3,14 +3,14 @@ import { type BotConfig, validateConfig } from "./types/BotConfig";
 import { LogLevel, logMessage } from "./utils/LogFormatter";
 import { createSessionRebuildFinalMessage, InstanceManager, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage } from "./persistence/SessionPersistence";
 import { registerCounterGame } from "./events/CounterGame";
-import { EventRegister } from "./events/types/EventTypes";
+import { type EventRegister } from "./events/types/EventTypes";
 import nodeCron from "node-cron";
 import { BackupReason, EventBackupBusIds, EventBusId, TaskQueueId } from "./types/Constants";
 import { registerDebugHandlers } from "./events/DebugHandler";
 import { getCurrentTime, getDateLocaleString } from "./utils/TimeUtils";
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
-    const shutdownTasks: Function[] = [];
+    const shutdownTasks: (() => void)[] = [];
     const startUpTime = Date.now();
     validateConfig(config);
 
@@ -80,7 +80,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 });
                 await logMessage(logConfig, `Instance rebuild fetched ${currentCollection.size} messages on page ${page}`);
                 if (currentCollection.size === 0) {
-                    break
+                    break;
                 };
 
                 const sorted = [...currentCollection.values()].sort((a, b) =>
@@ -107,7 +107,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
             if (recoveryContent !== undefined) {
                 try {
-                    const { stateId: _, ...persistedState } = await reconstructSessionStateFromFinalMessage(recoveryContent);
+                    const persistedState = await reconstructSessionStateFromFinalMessage(recoveryContent);
                     await instanceManager.runAtomicStateUpdate(async (_, writeState) => {
                         await writeState(persistedState);
                     });
@@ -147,7 +147,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
 
             const getNextRunMessage = (date: Date | null) => date
                 ? `Next scheduled backup attempt @ ${getDateLocaleString(date)}.`
-                : ''
+                : '';
 
             const minuteInterval = '5';
             const backupTaskQueue = instanceManager.getTaskQueue(TaskQueueId.BACKUP);
@@ -177,15 +177,25 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 await backupEventBus.notify(EventBackupBusIds.RUN_BACKUP);
             });
 
+            // Do at least something once a day so the channel doesn't enter an archive state
+            const channelKeepAliveTask = nodeCron.schedule(`59 1 * * *`, async () => {
+                await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
+                    if (currentState) {
+                        await writeState(currentState);
+                    }
+                });
+            });
+            shutdownTasks.push(() => {
+                backupTask.destroy();
+                channelKeepAliveTask.destroy();
+            });
+
             const startupRunMessage = getNextRunMessage(backupTask.getNextRun());
             const message = [
                 `Started backup at ${minuteInterval} minute intervals.`,
                 ...(startupRunMessage ? [startupRunMessage] : [])
             ].join('\n');
             await logMessage(logConfig, message);
-            shutdownTasks.push(() => {
-                backupTask.destroy();
-            });
         }, 0);
     });
 

@@ -6,10 +6,10 @@ export class TaskQueue {
 
     public constructor(concurrency: number = 1, cooldownPeriod: number = 0) {
         if (concurrency <= 0) {
-            throw new Error(`Invalid concurrency limit: ${concurrency}`)
+            throw new Error(`Invalid concurrency limit: ${concurrency}`);
         }
         if (cooldownPeriod < 0) {
-            throw new Error(`Invalid cooldown period: ${cooldownPeriod}ms`)
+            throw new Error(`Invalid cooldown period: ${cooldownPeriod}ms`);
         }
 
         this._concurrencyLimit = concurrency;

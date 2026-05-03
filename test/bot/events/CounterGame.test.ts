@@ -1,5 +1,5 @@
 import { failureRules } from "../../../src/bot/events/CounterGame";
-import { SessionState } from "../../../src/bot/persistence/SessionPersistence";
+import { type SessionState } from "../../../src/bot/persistence/SessionPersistence";
 
 type CounterState = SessionState['counter'];
 

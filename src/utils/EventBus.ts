@@ -1,34 +1,47 @@
 export type EventCallback = (params?: Record<string, string>) => Promise<void>;
 
 export class EventBus {
-    private _events: Map<string, EventCallback[]>;
+    private _events: Map<string, Map<EventCallback, boolean>>;
 
     public constructor() {
         this._events = new Map();
     }
 
-    public on(eventId: string, callback: EventCallback) {
-        const events = this._events.get(eventId);
-        if (events) {
-            if (events.includes(callback)) {
-                throw new Error(`Cannot reregister the same callback instance for event ID \'${eventId}\'`);
-            }
+    private _register(eventId: string, callback: EventCallback, isOnce: boolean) {
+        let callbacks = this._events.get(eventId);
+        if (!callbacks) {
+            callbacks = new Map();
+            this._events.set(eventId, callbacks);
         }
+        if (callbacks.has(callback)) {
+            throw new Error(`Cannot reregister the same callback instance for event ID '${eventId}'`);
+        }
+        callbacks.set(callback, isOnce);
+    }
 
-        this._events.set(
-            eventId,
-            [
-                ...(events ? events : []),
-                callback
-            ]
-        );
+    public on(eventId: string, callback: EventCallback) {
+        this._register(eventId, callback, false);
+    }
+
+    public once(eventId: string, callback: EventCallback) {
+        this._register(eventId, callback, true);
+    }
+
+    public remove(eventId: string, callback: EventCallback) {
+        this._events.get(eventId)?.delete(callback);
     }
 
     public async notify(eventId: string, params?: Record<string, string>) {
         const callbacks = this._events.get(eventId);
-        if (callbacks) {
-            const listenerCompletions = callbacks.map(callback => callback(params));
-            await Promise.all(listenerCompletions);
+        if (!callbacks) {
+            return;
         }
+
+        const currentCallbacks = [...callbacks];
+        const nextCallbacks = currentCallbacks.filter(([_, isOnce]) => !isOnce);
+        if (nextCallbacks.length !== currentCallbacks.length) {
+            this._events.set(eventId, new Map(nextCallbacks));
+        }
+        await Promise.all(currentCallbacks.map(([callback]) => callback(params)));
     }
 }
