@@ -8,18 +8,18 @@ type CounterGameRule = (actualNumber: number, currentAuthor: string | undefined,
 
 export const failureRules: readonly { message: string, rule: CounterGameRule }[] = Object.freeze([
     {
+        message: getTranslation('COUNTER_GAME_WRONG_USER'),
+        rule: (_actualNumber, currentAuthor, lastState) => {
+            return !!currentAuthor && currentAuthor === lastState?.lastAuthor;
+        }
+    },
+    {
         message: getTranslation('COUNTER_GAME_WRONG_NUMBER'),
         rule: (actualNumber, _currentAuthor, lastState) => {
             const expectedNumber = lastState
                 ? lastState.lastNumber + 1
                 : 0;
             return actualNumber !== expectedNumber;
-        }
-    },
-    {
-        message: getTranslation('COUNTER_GAME_WRONG_USER'),
-        rule: (_actualNumber, currentAuthor, lastState) => {
-            return !!currentAuthor && currentAuthor === lastState?.lastAuthor;
         }
     },
 ]);
@@ -54,7 +54,7 @@ export const onCounterGameMessage = async (message: OmitPartialGroupDMChannel<Me
     }
 };
 
-export const registerCounterGame: EventRegister = (client: Client, config: BotConfig, instanceManager: InstanceManager) => {
+export const registerCounterGame: EventRegister = async (client: Client, config: BotConfig, instanceManager: InstanceManager) => {
     client.on(Events.MessageCreate, async (message) => {
         await onCounterGameMessage(message, config, instanceManager);
     });

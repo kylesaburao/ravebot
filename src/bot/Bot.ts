@@ -17,6 +17,7 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
     const instanceManager = new InstanceManager();
     instanceManager.registerTaskQueue(TaskQueueId.SYNCHRONOUS, 1);
     instanceManager.registerTaskQueue(TaskQueueId.BACKUP, 1);
+    instanceManager.registerEventBus(EventBusId.MAIN);
     instanceManager.registerEventBus(EventBusId.BACKUP_BUS);
 
     const client = new Client({

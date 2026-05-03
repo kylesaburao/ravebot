@@ -10,8 +10,33 @@ describe('CounterGame failureRules', () => {
         expect(failureRules).toHaveLength(2);
     });
 
-    describe('wrong-number rule (index 0)', () => {
+    describe('wrong-user rule (index 0)', () => {
         const { rule } = failureRules[0];
+
+        it('passes when there is no prior state', () => {
+            expect(rule(0, 'alice', undefined)).toBe(false);
+        });
+
+        it('passes when the current author differs from the last author', () => {
+            expect(rule(6, 'alice', lastState(5, 'bob'))).toBe(false);
+        });
+
+        it('fails when the current author matches the last author', () => {
+            expect(rule(6, 'bob', lastState(5, 'bob'))).toBe(true);
+        });
+
+        it('passes when the current author is missing, even if last author is set', () => {
+            expect(rule(6, undefined, lastState(5, 'bob'))).toBe(false);
+        });
+
+        it('does not consider the number', () => {
+            expect(rule(999, 'bob', lastState(5, 'bob'))).toBe(true);
+            expect(rule(999, 'alice', lastState(5, 'bob'))).toBe(false);
+        });
+    });
+
+    describe('wrong-number rule (index 1)', () => {
+        const { rule } = failureRules[1];
 
         it('passes when starting from 0 with no prior state', () => {
             expect(rule(0, 'alice', undefined)).toBe(false);
@@ -36,31 +61,6 @@ describe('CounterGame failureRules', () => {
         it('does not consider the author', () => {
             expect(rule(6, undefined, lastState(5, 'bob'))).toBe(false);
             expect(rule(6, 'bob', lastState(5, 'bob'))).toBe(false);
-        });
-    });
-
-    describe('wrong-user rule (index 1)', () => {
-        const { rule } = failureRules[1];
-
-        it('passes when there is no prior state', () => {
-            expect(rule(0, 'alice', undefined)).toBe(false);
-        });
-
-        it('passes when the current author differs from the last author', () => {
-            expect(rule(6, 'alice', lastState(5, 'bob'))).toBe(false);
-        });
-
-        it('fails when the current author matches the last author', () => {
-            expect(rule(6, 'bob', lastState(5, 'bob'))).toBe(true);
-        });
-
-        it('passes when the current author is missing, even if last author is set', () => {
-            expect(rule(6, undefined, lastState(5, 'bob'))).toBe(false);
-        });
-
-        it('does not consider the number', () => {
-            expect(rule(999, 'bob', lastState(5, 'bob'))).toBe(true);
-            expect(rule(999, 'alice', lastState(5, 'bob'))).toBe(false);
         });
     });
 });

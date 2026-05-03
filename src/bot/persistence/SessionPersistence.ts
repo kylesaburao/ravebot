@@ -3,7 +3,7 @@ import { gzip, gunzip } from "zlib";
 import { randomUUID } from 'crypto';
 import { InstanceMetadata } from "../types/BotConfig";
 import { TaskQueue } from "../../utils/TaskQueue";
-import { EventBus, EventCallback } from "../../utils/EventSignaller";
+import { EventBus } from "../../utils/EventBus";
 
 const asyncGzip = promisify(gzip);
 const asyncGunzip = promisify(gunzip);

@@ -5,11 +5,16 @@ export enum TaskQueueId {
 }
 
 export enum EventBusId {
-    BACKUP_BUS = 'BACKUP_BUS'
+    BACKUP_BUS = 'BACKUP_BUS',
+    MAIN = 'MAIN'
 }
 
 export enum EventBackupBusIds {
     RUN_BACKUP = 'RUN_BACKUP'
+}
+
+export enum MainEventBus {
+    LOCKDOWN = 'LOCKDOWN'
 }
 
 export enum BackupReason {
