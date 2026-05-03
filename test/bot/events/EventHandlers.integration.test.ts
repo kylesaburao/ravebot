@@ -7,9 +7,9 @@ import {
     BackupReason,
     EventBackupBusIds,
     EventBusId,
-    TaskQueueId,
 } from '../../../src/bot/types/Constants';
 import { getTranslation } from '../../../src/resources/I18n';
+import { TaskQueue } from '../../../src/utils/TaskQueue';
 
 const config: BotConfig = {
     DISCORD_BOT_TOKEN: 'token',
@@ -170,7 +170,6 @@ describe('registerDebugHandlers (integration)', () => {
     const setUp = ({ registerBackupBus = true }: { registerBackupBus?: boolean } = {}) => {
         resetInstanceManager();
         instanceManager = new InstanceManager();
-        instanceManager.registerTaskQueue(TaskQueueId.DEBUG, 1, 0);
 
         backupCallback = jest.fn().mockResolvedValue(undefined);
         if (registerBackupBus) {
@@ -178,8 +177,7 @@ describe('registerDebugHandlers (integration)', () => {
             instanceManager.getEventBus(EventBusId.BACKUP_BUS)!.on(EventBackupBusIds.RUN_BACKUP, backupCallback);
         }
 
-        const queue = instanceManager.getTaskQueue(TaskQueueId.DEBUG)!;
-        scheduleSpy = jest.spyOn(queue, 'schedule');
+        scheduleSpy = jest.spyOn(TaskQueue.prototype, 'schedule');
 
         const handlers: Record<string, (msg: any) => Promise<void>> = {};
         const client = {
@@ -199,12 +197,13 @@ describe('registerDebugHandlers (integration)', () => {
     };
 
     beforeEach(() => setUp());
+    afterEach(() => jest.restoreAllMocks());
 
-    it('throws at registration when the debug task queue is missing', () => {
+    it('registers without throwing even when no debug task queue is in the instance manager', () => {
         resetInstanceManager();
         const fresh = new InstanceManager();
         const client = { on: jest.fn() } as unknown as Client;
-        expect(() => registerDebugHandlers(client, config, fresh)).toThrow('Failed to initialize debug handlers');
+        expect(() => registerDebugHandlers(client, config, fresh)).not.toThrow();
     });
 
     const ignoreCases: { name: string; overrides: MessageOverrides }[] = [

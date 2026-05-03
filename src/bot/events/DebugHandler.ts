@@ -2,8 +2,9 @@ import { Client, Events, Message, OmitPartialGroupDMChannel } from "discord.js";
 import { EventRegister } from "./types/EventTypes";
 import { BotConfig } from "../types/BotConfig";
 import { InstanceManager } from "../persistence/SessionPersistence";
-import { BackupReason, EventBackupBusIds, EventBusId, TaskQueueId } from "../types/Constants";
+import { BackupReason, EventBackupBusIds, EventBusId } from "../types/Constants";
 import { getTranslation } from "../../resources/I18n";
+import { TaskQueue } from "../../utils/TaskQueue";
 
 type DebugActionHandler = (message: OmitPartialGroupDMChannel<Message<boolean>>, instanceManager: InstanceManager) => Promise<void>;
 
@@ -42,10 +43,7 @@ const debugActions: Record<string, DebugActionHandler | undefined> = {
 };
 
 export const registerDebugHandlers: EventRegister = (client: Client, config: BotConfig, instanceManager: InstanceManager) => {
-    const debugTaskQueue = instanceManager.getTaskQueue(TaskQueueId.DEBUG);
-    if (!debugTaskQueue) {
-        throw new Error('Failed to initialize debug handlers');
-    }
+    const debugTaskQueue = new TaskQueue(1, 500);
 
     client.on(Events.MessageCreate, async (message) => {
         const channel = message.channel;
