@@ -1,0 +1,6 @@
+{
+    "HELLO": "Hello",
+    "AVAILABLE_COMMANDS": "Available commands:",
+    "COUNTER_GAME_WRONG_NUMBER": "You replied with the wrong number. Restarting from 0.",
+    "COUNTER_GAME_WRONG_USER": "Someone else must try. Restarting from 0."
+}
