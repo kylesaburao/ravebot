@@ -4,7 +4,7 @@ import { LogLevel, logMessage } from "./utils/LogFormatter";
 import { createSessionRebuildFinalMessage, InstanceManager, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage } from "./persistence/SessionPersistence";
 import { registerCounterGame } from "./events/CounterGame";
 import { type EventRegister } from "./events/types/EventTypes";
-import nodeCron from "node-cron";
+import { Cron } from "croner";
 import { BackupReason, EventBackupBusIds, EventBusId, TaskQueueId } from "./types/Constants";
 import { registerDebugHandlers } from "./events/DebugHandler";
 import { getCurrentTime, getDateLocaleString } from "./utils/TimeUtils";
@@ -166,19 +166,19 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 await backupTaskQueue.schedule(async () => {
                     const { currentStateId: backupStateId, didRun } = await persistState(reason, lastBackupStateId) || {};
                     lastBackupStateId = backupStateId;
-                    const nextRunMessage = getNextRunMessage(backupTask.getNextRun());
+                    const nextRunMessage = getNextRunMessage(backupTask.nextRun());
                     if (didRun && nextRunMessage) {
                         await logMessage(logConfig, nextRunMessage);
                     }
                 });
             });
 
-            const backupTask = nodeCron.schedule(`*/${minuteInterval} * * * *`, async () => {
+            const backupTask = new Cron(`*/${minuteInterval} * * * *`, {}, async () => {
                 await backupEventBus.notify(EventBackupBusIds.RUN_BACKUP);
             });
 
             // Do at least something once a day so the channel doesn't enter an archive state
-            const channelKeepAliveTask = nodeCron.schedule(`59 1 * * *`, async () => {
+            const channelKeepAliveTask = new Cron(`59 1 * * *`, { timezone: "America/Vancouver" }, async () => {
                 await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
                     if (currentState) {
                         await writeState(currentState);
@@ -186,11 +186,11 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
                 });
             });
             shutdownTasks.push(() => {
-                backupTask.destroy();
-                channelKeepAliveTask.destroy();
+                backupTask.stop();
+                channelKeepAliveTask.stop();
             });
 
-            const startupRunMessage = getNextRunMessage(backupTask.getNextRun());
+            const startupRunMessage = getNextRunMessage(backupTask.nextRun());
             const message = [
                 `Started backup at ${minuteInterval} minute intervals.`,
                 ...(startupRunMessage ? [startupRunMessage] : [])

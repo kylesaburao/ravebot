@@ -22,9 +22,9 @@
     "lint": "eslint src test"
   },
   "dependencies": {
+    "croner": "^10.0.1",
     "discord.js": "^14.26.3",
-    "dotenv": "^17.4.2",
-    "node-cron": "^4.2.1"
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
