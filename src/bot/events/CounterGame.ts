@@ -5,6 +5,11 @@ import { type EventRegister } from "./types/EventTypes";
 import { getTranslation } from "../../resources/I18n";
 
 type CounterGameRule = (actualNumber: number, currentAuthor: string | undefined, lastState: SessionState['counter']) => boolean;
+type CounterState = SessionState['counter'];
+
+type CounterGameDecision =
+    | { type: 'success'; nextState: NonNullable<CounterState> }
+    | { type: 'failure'; message: string };
 
 export const failureRules: readonly { message: string, rule: CounterGameRule }[] = Object.freeze([
     {
@@ -24,32 +29,59 @@ export const failureRules: readonly { message: string, rule: CounterGameRule }[]
     },
 ]);
 
+export const parseCounterGameNumber = (messageContent: string): number | undefined => {
+    const trimmedContent = messageContent.trim();
+    if (!trimmedContent || !Number.isFinite(+trimmedContent) || !Number.isSafeInteger(+trimmedContent)) {
+        return undefined;
+    }
+
+    return Number(trimmedContent);
+};
+
+export const getCounterGameDecision = (
+    messageNumber: number,
+    currentAuthor: string,
+    lastState: CounterState
+): CounterGameDecision => {
+    const failedRule = failureRules.find(
+        rule => rule.rule(messageNumber, currentAuthor, lastState)
+    );
+    if (failedRule) {
+        return { type: 'failure', message: failedRule.message };
+    }
+
+    return {
+        type: 'success',
+        nextState: { lastNumber: messageNumber, lastAuthor: currentAuthor }
+    };
+};
+
 export const onCounterGameMessage = async (message: OmitPartialGroupDMChannel<Message<boolean>>, config: BotConfig, instanceManager: InstanceManager) => {
     if (!message.author.bot && message.author.id !== config.DISCORD_BOT_ID) {
         const channel = message.channel;
 
         // Counting game
         if (channel.isTextBased() && channel.isSendable() && channel.id === config.COUNTER_TEXT_CHANNEL_ID) {
-            const messageContent = message.content.trim();
-            if (messageContent && Number.isFinite(+messageContent) && Number.isSafeInteger(+messageContent)) {
-                const messageNumber = Number(messageContent);
-                await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
-                    if (!currentState) {
-                        return;
-                    }
-
-                    const failedRule = failureRules.find(
-                        rule => rule.rule(messageNumber, message.author.id, currentState.counter)
-                    );
-                    if (failedRule) {
-                        await channel.sendTyping();
-                        await writeState({ counter: undefined });
-                        await message.reply(failedRule.message);
-                        return;
-                    }
-                    await writeState({ counter: { lastNumber: messageNumber, lastAuthor: message.author.id } });
-                });
+            const messageNumber = parseCounterGameNumber(message.content);
+            if (messageNumber === undefined) {
+                return;
             }
+
+            await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
+                if (!currentState) {
+                    return;
+                }
+
+                const decision = getCounterGameDecision(messageNumber, message.author.id, currentState.counter);
+                if (decision.type === 'failure') {
+                    await channel.sendTyping();
+                    await writeState({ counter: undefined });
+                    await message.reply(decision.message);
+                    return;
+                }
+
+                await writeState({ counter: decision.nextState });
+            });
         }
     }
 };

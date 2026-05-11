@@ -1,13 +1,15 @@
 import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
 import { type BotConfig, validateConfig } from "./types/BotConfig";
 import { LogLevel, logMessage } from "./utils/LogFormatter";
-import { createSessionRebuildFinalMessage, InstanceManager, REBUILD_STATE_HEADER, reconstructSessionStateFromFinalMessage } from "./persistence/SessionPersistence";
+import { InstanceManager } from "./persistence/SessionPersistence";
 import { registerCounterGame } from "./events/CounterGame";
 import { type EventRegister } from "./events/types/EventTypes";
-import { Cron } from "croner";
-import { BackupReason, EventBackupBusIds, EventBusId, TaskQueueId } from "./types/Constants";
+import { EventBusId, TaskQueueId } from "./types/Constants";
 import { registerDebugHandlers } from "./events/DebugHandler";
-import { getCurrentTime, getDateLocaleString } from "./utils/TimeUtils";
+import { getCurrentTime } from "./utils/TimeUtils";
+import { recoverSessionState } from "./services/RecoveryService";
+import { registerBackupScheduler } from "./services/BackupService";
+import { registerShutdownHandlers } from "./services/LifecycleService";
 
 export const initializeBot = async (config: BotConfig): Promise<void> => {
     const shutdownTasks: (() => void)[] = [];
@@ -28,94 +30,18 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         ]
     });
     const logConfig = { level: LogLevel.INFO, sessionId: config.initId, targetChannel: { client, id: config.SYSTEM_TEXT_CHANNEL_ID }};
-
-    const persistState = async (reason: string, lastPersistedStateId?: string) => {
-        try {
-            const shutdownMessage = `${reason} @ ${getCurrentTime()}`;
-            const currentState = await instanceManager.getCurrentState();
-            const currentStateId = currentState ? currentState.stateId : undefined;
-            let didRun = false;
-            if (currentState) {
-                if (reason === BackupReason.MANUAL || !(reason === BackupReason.AUTOMATIC && lastPersistedStateId && currentState.stateId === lastPersistedStateId)) {
-                    const closingMessage = await createSessionRebuildFinalMessage(
-                        shutdownMessage,
-                        currentState
-                    );
-                    await logMessage(
-                        logConfig,
-                        closingMessage  
-                    );
-                    didRun = true;
-                }
-            } else if (reason === BackupReason.SHUTDOWN) {
-                await logMessage(
-                    logConfig,
-                    shutdownMessage
-                );
-                didRun = true;
-            }
-
-            return { currentStateId, didRun };
-        } catch (error) {
-            console.error('Failed to send shutdown message:', error);
-        }
-    };
+    const logSystemMessage = (message: string) => logMessage(logConfig, message);
 
     client.once(Events.ClientReady, async (readyClient) => {
         instanceManager.setMetadata({ isInit: true });
         
         await logMessage({ ...logConfig, hasDivider: true });
-        const systemChannel = await client.channels.fetch(config.SYSTEM_TEXT_CHANNEL_ID);
-
-        if (systemChannel && systemChannel.isTextBased()) {
-            const MAX_RECOVERY_PAGES = 100;
-            let recoveryContent: string | undefined;
-            let cursorMessageId: string | undefined;
-
-            for (let page = 0; recoveryContent === undefined && page < MAX_RECOVERY_PAGES; page++) {
-                const fetchSize = 100;
-                const currentCollection = await systemChannel.messages.fetch({
-                    limit: fetchSize,
-                    ...(cursorMessageId && { before: cursorMessageId })
-                });
-                await logMessage(logConfig, `Instance rebuild fetched ${currentCollection.size} messages on page ${page}`);
-                if (currentCollection.size === 0) {
-                    break;
-                };
-
-                const sorted = [...currentCollection.values()].sort((a, b) =>
-                    b.createdTimestamp - a.createdTimestamp
-                );
-
-                const messageMatch = sorted.find(message =>
-                    message.author.bot
-                    && message.author.id === config.DISCORD_BOT_ID
-                    && message.content.split('\n').at(-2) === REBUILD_STATE_HEADER
-                );
-
-                if (messageMatch) {
-                    recoveryContent = messageMatch.content;
-                    await logMessage(logConfig, 'Instance rebuild located backup :tada:');
-                } else {
-                    cursorMessageId = sorted[sorted.length - 1].id;
-                    await logMessage(logConfig, 'Instance rebuild failed to locate backup. Waiting 5 seconds.');
-                    await new Promise((resolve) => {
-                        setTimeout(resolve, 5000);
-                    });
-                }
-            }
-
-            if (recoveryContent !== undefined) {
-                try {
-                    const persistedState = await reconstructSessionStateFromFinalMessage(recoveryContent);
-                    await instanceManager.runAtomicStateUpdate(async (_, writeState) => {
-                        await writeState(persistedState);
-                    });
-                } catch (error) {
-                    console.error('Failed to reconstruct session state:', error);
-                }
-            }
-        }
+        await recoverSessionState({
+            client,
+            config,
+            instanceManager,
+            logMessage: logSystemMessage
+        });
 
         await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
             const timeTook = Date.now() - startUpTime;
@@ -143,79 +69,19 @@ export const initializeBot = async (config: BotConfig): Promise<void> => {
         });
 
         setTimeout(async () => {
-            let lastBackupStateId: string | undefined = (await instanceManager.getCurrentState())?.stateId;
-
-            const getNextRunMessage = (date: Date | null) => date
-                ? `Next scheduled backup attempt @ ${getDateLocaleString(date)}.`
-                : '';
-
-            const minuteInterval = '5';
-            const backupTaskQueue = instanceManager.getTaskQueue(TaskQueueId.BACKUP);
-            const backupEventBus = instanceManager.getEventBus(EventBusId.BACKUP_BUS);
-            if (!backupTaskQueue || !backupEventBus) {
-                throw new Error('Failed to initialize the backup task queue');
-            }
-
-            backupEventBus.on(EventBackupBusIds.RUN_BACKUP, async (params) => {
-                let reason = BackupReason.AUTOMATIC;
-                if (params?.['reason'] === BackupReason.MANUAL) {
-                    reason = BackupReason.MANUAL;
-                }
-
-                // no overlapping writes to the channel
-                await backupTaskQueue.schedule(async () => {
-                    const { currentStateId: backupStateId, didRun } = await persistState(reason, lastBackupStateId) || {};
-                    lastBackupStateId = backupStateId;
-                    const nextRunMessage = getNextRunMessage(backupTask.nextRun());
-                    if (didRun && nextRunMessage) {
-                        await logMessage(logConfig, nextRunMessage);
-                    }
-                });
-            });
-
-            const backupTask = new Cron(`*/${minuteInterval} * * * *`, {}, async () => {
-                await backupEventBus.notify(EventBackupBusIds.RUN_BACKUP);
-            });
-
-            // Do at least something once a day so the channel doesn't enter an archive state
-            const channelKeepAliveTask = new Cron(`59 1 * * *`, { timezone: "America/Vancouver" }, async () => {
-                await instanceManager.runAtomicStateUpdate(async (currentState, writeState) => {
-                    if (currentState) {
-                        await writeState(currentState);
-                    }
-                });
-            });
-            shutdownTasks.push(() => {
-                backupTask.stop();
-                channelKeepAliveTask.stop();
-            });
-
-            const startupRunMessage = getNextRunMessage(backupTask.nextRun());
-            const message = [
-                `Started backup at ${minuteInterval} minute intervals.`,
-                ...(startupRunMessage ? [startupRunMessage] : [])
-            ].join('\n');
-            await logMessage(logConfig, message);
+            shutdownTasks.push(await registerBackupScheduler({
+                instanceManager,
+                logMessage: logSystemMessage
+            }));
         }, 0);
     });
 
-    const shutdown = async (signal: string) => {
-        shutdownTasks.forEach(task => task());
-
-        if (!instanceManager.getMetadata().isInit) {
-            console.log('Abort shutdown handler due to incomplete initialization');
-            process.exit(0);
-        }
-
-        console.log(`Received ${signal}, shutting down...`);
-        await persistState('Shutting down');
-
-        client.destroy();
-        process.exit(0);
-    };
-
-    process.once('SIGTERM', () => shutdown('SIGTERM'));
-    process.once('SIGINT', () => shutdown('SIGINT'));
+    registerShutdownHandlers({
+        client,
+        instanceManager,
+        logMessage: logSystemMessage,
+        shutdownTasks
+    });
 
     const eventRegisters: EventRegister[] = [
         registerCounterGame,

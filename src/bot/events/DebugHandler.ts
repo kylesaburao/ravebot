@@ -42,15 +42,26 @@ const debugActions: Record<string, DebugActionHandler | undefined> = {
     }
 };
 
+export const getDebugAction = (content: string): DebugActionHandler | undefined => debugActions[content];
+
+export const shouldHandleDebugMessage = (
+    message: Pick<OmitPartialGroupDMChannel<Message<boolean>>, 'author' | 'channel'>,
+    config: Pick<BotConfig, 'DISCORD_BOT_ID' | 'DEBUG_TEXT_CHANNEL_ID'>
+): boolean => {
+    return !message.author.bot
+        && message.author.id !== config.DISCORD_BOT_ID
+        && message.channel.id === config.DEBUG_TEXT_CHANNEL_ID;
+};
+
 export const registerDebugHandlers: EventRegister = (client: Client, config: BotConfig, instanceManager: InstanceManager) => {
     const debugTaskQueue = new TaskQueue(1, 500);
 
     client.on(Events.MessageCreate, async (message) => {
         const channel = message.channel;
-        if (!message.author.bot && message.author.id !== config.DISCORD_BOT_ID && channel.id === config.DEBUG_TEXT_CHANNEL_ID) {
+        if (shouldHandleDebugMessage(message, config)) {
             debugTaskQueue.schedule(async () => {
                 const { content } = message;
-                const action = debugActions[content];
+                const action = getDebugAction(content);
 
                 if (action) {
                     await channel.sendTyping();

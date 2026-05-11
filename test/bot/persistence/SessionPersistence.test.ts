@@ -77,7 +77,7 @@ describe('InstanceManager', () => {
     describe('runStateUpdate', () => {
         it('calls callback with undefined when no state exists', async () => {
             const manager = new InstanceManager();
-            let received: SessionState | undefined = {} as any;
+            let received: SessionState | undefined = { stateId: 'unset', sessionId: 'unset', generation: -1 };
             await manager.runAtomicStateUpdate(async (currentState) => { received = currentState; });
             expect(received).toBeUndefined();
         });

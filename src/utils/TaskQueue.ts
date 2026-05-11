@@ -1,6 +1,6 @@
 export class TaskQueue {
     private _concurrencyLimit: number;
-    private _queue: (() => Promise<any>)[];
+    private _queue: (() => Promise<unknown>)[];
     private _activeCount: number;
     private _cooldownPeriod: number;
 
@@ -18,8 +18,8 @@ export class TaskQueue {
         this._cooldownPeriod = cooldownPeriod;
     }
 
-    public schedule(taskFn: () => Promise<any>) {
-        return new Promise((resolve, reject) => {
+    public schedule<T>(taskFn: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
             const queueAction = async () => {
                 try {
                     const result = await taskFn();

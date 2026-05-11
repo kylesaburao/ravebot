@@ -1,4 +1,4 @@
-import { failureRules } from "../../../src/bot/events/CounterGame";
+import { failureRules, getCounterGameDecision, parseCounterGameNumber } from "../../../src/bot/events/CounterGame";
 import { type SessionState } from "../../../src/bot/persistence/SessionPersistence";
 
 type CounterState = SessionState['counter'];
@@ -61,6 +61,29 @@ describe('CounterGame failureRules', () => {
         it('does not consider the author', () => {
             expect(rule(6, undefined, lastState(5, 'bob'))).toBe(false);
             expect(rule(6, 'bob', lastState(5, 'bob'))).toBe(false);
+        });
+    });
+});
+
+describe('CounterGame decisions', () => {
+    it('parses safe integer message content', () => {
+        expect(parseCounterGameNumber(' 6 ')).toBe(6);
+        expect(parseCounterGameNumber('6.5')).toBeUndefined();
+        expect(parseCounterGameNumber('six')).toBeUndefined();
+        expect(parseCounterGameNumber('')).toBeUndefined();
+    });
+
+    it('returns failure with the matching rule message', () => {
+        expect(getCounterGameDecision(6, 'bob', lastState(5, 'bob'))).toEqual({
+            type: 'failure',
+            message: failureRules[0].message
+        });
+    });
+
+    it('returns the next counter state for a valid count', () => {
+        expect(getCounterGameDecision(6, 'alice', lastState(5, 'bob'))).toEqual({
+            type: 'success',
+            nextState: { lastNumber: 6, lastAuthor: 'alice' }
         });
     });
 });

@@ -1,6 +1,6 @@
 import { type Client, Events } from 'discord.js';
-import { onCounterGameMessage } from '../../../src/bot/events/CounterGame';
-import { registerDebugHandlers } from '../../../src/bot/events/DebugHandler';
+import { onCounterGameMessage, registerCounterGame } from '../../../src/bot/events/CounterGame';
+import { getDebugAction, registerDebugHandlers, shouldHandleDebugMessage } from '../../../src/bot/events/DebugHandler';
 import { InstanceManager } from '../../../src/bot/persistence/SessionPersistence';
 import { type BotConfig } from '../../../src/bot/types/BotConfig';
 import {
@@ -30,6 +30,9 @@ type MessageOverrides = {
     channelId?: string;
 };
 
+type TestMessage = Parameters<typeof onCounterGameMessage>[0];
+type MessageHandler = (msg: TestMessage) => Promise<void>;
+
 const createMockMessage = (overrides: MessageOverrides = {}) => {
     const reply = jest.fn().mockResolvedValue(undefined);
     const sendTyping = jest.fn().mockResolvedValue(undefined);
@@ -46,7 +49,7 @@ const createMockMessage = (overrides: MessageOverrides = {}) => {
         },
         reply,
     };
-    return { message: message as any, reply, send, sendTyping };
+    return { message: message as unknown as TestMessage, reply, send, sendTyping };
 };
 
 const seedState = async (
@@ -56,6 +59,21 @@ const seedState = async (
     await instanceManager.runAtomicStateUpdate(async (_currentState, writeState) => {
         await writeState({ sessionId: 'session-1', generation: 1, counter });
     });
+};
+
+const createRegisteredMessageClient = () => {
+    const handlers: Record<string, MessageHandler[]> = {};
+    const client = {
+        on: (event: string, handler: MessageHandler) => {
+            handlers[event] = [...(handlers[event] ?? []), handler];
+        },
+    } as unknown as Client;
+
+    const dispatchMessage = async (message: TestMessage) => {
+        await Promise.all((handlers[Events.MessageCreate] ?? []).map(handler => handler(message)));
+    };
+
+    return { client, dispatchMessage };
 };
 
 describe('onCounterGameMessage (integration)', () => {
@@ -91,9 +109,13 @@ describe('onCounterGameMessage (integration)', () => {
 
     it.each(ignoreCases)('ignores $name', async ({ overrides }) => {
         const { message, reply } = createMockMessage(overrides);
+        const updateSpy = jest.spyOn(instanceManager, 'runAtomicStateUpdate');
         await onCounterGameMessage(message, config, instanceManager);
         expect(reply).not.toHaveBeenCalled();
         expect((await instanceManager.getCurrentState())?.counter).toEqual({ lastNumber: 5, lastAuthor: PRIOR_AUTHOR });
+        if (overrides.content === 'six' || overrides.content === '6.5') {
+            expect(updateSpy).not.toHaveBeenCalled();
+        }
     });
 
     it('does nothing when state has not been initialised', async () => {
@@ -145,7 +167,7 @@ describe('onCounterGameMessage (integration)', () => {
 
 describe('registerDebugHandlers (integration)', () => {
     let instanceManager: InstanceManager;
-    let messageHandler: (msg: any) => Promise<void>;
+    let messageHandler: MessageHandler;
     let scheduleSpy: jest.SpyInstance<Promise<unknown>, [() => Promise<unknown>]>;
     let backupCallback: jest.Mock;
 
@@ -160,9 +182,9 @@ describe('registerDebugHandlers (integration)', () => {
 
         scheduleSpy = jest.spyOn(TaskQueue.prototype, 'schedule');
 
-        const handlers: Record<string, (msg: any) => Promise<void>> = {};
+        const handlers: Record<string, MessageHandler> = {};
         const client = {
-            on: (event: string, handler: (msg: any) => Promise<void>) => {
+            on: (event: string, handler: MessageHandler) => {
                 handlers[event] = handler;
             },
         } as unknown as Client;
@@ -276,5 +298,132 @@ describe('registerDebugHandlers (integration)', () => {
         expect(sendTyping).toHaveBeenCalledTimes(1);
         expect(send).toHaveBeenCalledWith("Unknown command 'NOT_A_COMMAND'. See `HELP`.");
         expect(reply).not.toHaveBeenCalled();
+    });
+});
+
+describe('DebugHandler decision helpers', () => {
+    it('looks up debug commands without constructing a Discord client', () => {
+        expect(getDebugAction('HELP')).toBeDefined();
+        expect(getDebugAction('NOT_A_COMMAND')).toBeUndefined();
+    });
+
+    it('identifies messages that should be handled', () => {
+        const { message } = createMockMessage({
+            content: 'HELP',
+            authorId: NEW_AUTHOR,
+            channelId: config.DEBUG_TEXT_CHANNEL_ID,
+        });
+
+        expect(shouldHandleDebugMessage(message, config)).toBe(true);
+    });
+
+    it('rejects bot-authored debug messages', () => {
+        const { message } = createMockMessage({
+            content: 'HELP',
+            isBot: true,
+            channelId: config.DEBUG_TEXT_CHANNEL_ID,
+        });
+
+        expect(shouldHandleDebugMessage(message, config)).toBe(false);
+    });
+});
+
+describe('registered user message handlers (end-to-end)', () => {
+    let instanceManager: InstanceManager;
+    let backupCallback: jest.Mock;
+    let scheduleSpy: jest.SpyInstance<Promise<unknown>, [() => Promise<unknown>]>;
+    let dispatchMessage: (message: TestMessage) => Promise<void>;
+
+    const dispatch = async (overrides: MessageOverrides) => {
+        const fixture = createMockMessage(overrides);
+        await dispatchMessage(fixture.message);
+        await Promise.allSettled(scheduleSpy.mock.results.map(result => result.value));
+        return fixture;
+    };
+
+    beforeEach(async () => {
+        instanceManager = new InstanceManager();
+        instanceManager.registerEventBus(EventBusId.BACKUP_BUS);
+        backupCallback = jest.fn().mockResolvedValue(undefined);
+        instanceManager.getEventBus(EventBusId.BACKUP_BUS)!.on(EventBackupBusIds.RUN_BACKUP, backupCallback);
+        await seedState(instanceManager, { lastNumber: 5, lastAuthor: PRIOR_AUTHOR });
+
+        scheduleSpy = jest.spyOn(TaskQueue.prototype, 'schedule');
+        const registeredClient = createRegisteredMessageClient();
+        registerCounterGame(registeredClient.client, config, instanceManager);
+        registerDebugHandlers(registeredClient.client, config, instanceManager);
+        dispatchMessage = registeredClient.dispatchMessage;
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('updates counter state from a user message emitted by the registered Discord handler', async () => {
+        const { reply, sendTyping } = await dispatch({
+            content: '6',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        expect(reply).not.toHaveBeenCalled();
+        expect(sendTyping).not.toHaveBeenCalled();
+        expect((await instanceManager.getCurrentState())?.counter).toEqual({
+            lastNumber: 6,
+            lastAuthor: NEW_AUTHOR
+        });
+    });
+
+    it('resets counter state and replies from the registered handler when a user breaks the count', async () => {
+        const { reply, sendTyping } = await dispatch({
+            content: '8',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        expect(sendTyping).toHaveBeenCalledTimes(1);
+        expect(reply).toHaveBeenCalledWith(getTranslation('COUNTER_GAME_WRONG_NUMBER'));
+        expect((await instanceManager.getCurrentState())?.counter).toBeUndefined();
+    });
+
+    it('runs a debug command from a user message emitted by the registered Discord handler', async () => {
+        const { reply, sendTyping } = await dispatch({
+            content: 'HELP',
+            authorId: NEW_AUTHOR,
+            channelId: config.DEBUG_TEXT_CHANNEL_ID,
+        });
+
+        expect(sendTyping).toHaveBeenCalledTimes(1);
+        expect(String(reply.mock.calls[0]?.[0] ?? '')).toContain(getTranslation('AVAILABLE_COMMANDS'));
+        expect((await instanceManager.getCurrentState())?.counter).toEqual({
+            lastNumber: 5,
+            lastAuthor: PRIOR_AUTHOR
+        });
+    });
+
+    it('notifies backup listeners from the registered debug handler', async () => {
+        const { reply } = await dispatch({
+            content: 'MANUAL_BACKUP',
+            authorId: NEW_AUTHOR,
+            channelId: config.DEBUG_TEXT_CHANNEL_ID,
+        });
+
+        expect(backupCallback).toHaveBeenCalledWith({ reason: BackupReason.MANUAL });
+        expect(reply).toHaveBeenCalledWith('MANUAL_BACKUP ran');
+    });
+
+    it('ignores bot-authored messages across registered handlers', async () => {
+        const { reply, send, sendTyping } = await dispatch({
+            content: '6',
+            isBot: true,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        expect(reply).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+        expect(sendTyping).not.toHaveBeenCalled();
+        expect(scheduleSpy).not.toHaveBeenCalled();
+        expect((await instanceManager.getCurrentState())?.counter).toEqual({
+            lastNumber: 5,
+            lastAuthor: PRIOR_AUTHOR
+        });
     });
 });
