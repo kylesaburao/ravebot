@@ -1,5 +1,5 @@
 import { createSessionRebuildFinalMessage, InstanceManager, type SessionState } from "../../../src/bot/persistence/SessionPersistence";
-import { findRecoveryContent, recoverSessionState } from "../../../src/bot/services/RecoveryService";
+import { findRecoveryContent, normalizeRecoveredSessionState, recoverSessionState } from "../../../src/bot/services/RecoveryService";
 
 const botId = 'bot-id';
 
@@ -33,6 +33,33 @@ const createMessage = (
 });
 
 type RecoverSessionStateOptions = Parameters<typeof recoverSessionState>[0];
+
+const recoverStateFromBackup = async (originalState: SessionState): Promise<SessionState | undefined> => {
+    const finalMessage = await createSessionRebuildFinalMessage('Shutdown @ now', originalState);
+    const client = {
+        channels: {
+            fetch: jest.fn().mockResolvedValue({
+                isTextBased: () => true,
+                messages: {
+                    fetch: jest.fn().mockResolvedValue(createCollection([
+                        createMessage({ content: finalMessage })
+                    ]))
+                }
+            })
+        }
+    };
+    const instanceManager = new InstanceManager();
+
+    await recoverSessionState({
+        client: client as unknown as RecoverSessionStateOptions['client'],
+        config: { SYSTEM_TEXT_CHANNEL_ID: 'system-channel', DISCORD_BOT_ID: botId },
+        instanceManager,
+        logMessage: jest.fn().mockResolvedValue(undefined),
+        retryDelayMs: 0
+    });
+
+    return instanceManager.getCurrentState();
+};
 
 describe('findRecoveryContent', () => {
     it('finds a valid rebuild message from fetched channel pages', async () => {
@@ -110,6 +137,55 @@ describe('findRecoveryContent', () => {
     });
 });
 
+describe('normalizeRecoveredSessionState', () => {
+    it('derives leaderboard data for legacy state with an active counter', () => {
+        const state: SessionState = {
+            stateId: 'state-1',
+            sessionId: 'session-1',
+            generation: 7,
+            counter: { lastNumber: 42, lastAuthor: 'alice' }
+        };
+
+        expect(normalizeRecoveredSessionState(state)).toEqual({
+            ...state,
+            leaderboard: {
+                highestCount: 42,
+                highestUserId: 'alice'
+            }
+        });
+    });
+
+    it('preserves state without leaderboard when there is no counter source', () => {
+        const state: SessionState = {
+            stateId: 'state-1',
+            sessionId: 'session-1',
+            generation: 7
+        };
+
+        expect(normalizeRecoveredSessionState(state)).toBe(state);
+    });
+
+    it('preserves existing leaderboard data', () => {
+        const state: SessionState = {
+            stateId: 'state-1',
+            sessionId: 'session-1',
+            generation: 7,
+            counter: { lastNumber: 2, lastAuthor: 'alice' },
+            leaderboard: {
+                highestCount: 9,
+                highestUserId: 'bob',
+                lastFailure: {
+                    userId: 'carol',
+                    count: 4,
+                    timestamp: '2026-05-17T00:00:00.000Z'
+                }
+            }
+        };
+
+        expect(normalizeRecoveredSessionState(state)).toBe(state);
+    });
+});
+
 describe('recoverSessionState', () => {
     it('handles channel fetch failures without throwing', async () => {
         const client = {
@@ -137,35 +213,52 @@ describe('recoverSessionState', () => {
 
     it('writes the recovered state to instanceManager when a backup is found', async () => {
         const originalState: SessionState = { stateId: 'state-1', sessionId: 'session-1', generation: 7, counter: { lastNumber: 42, lastAuthor: 'alice' } };
-        const finalMessage = await createSessionRebuildFinalMessage('Shutdown @ now', originalState);
-        const client = {
-            channels: {
-                fetch: jest.fn().mockResolvedValue({
-                    isTextBased: () => true,
-                    messages: {
-                        fetch: jest.fn().mockResolvedValue(createCollection([
-                            createMessage({ content: finalMessage })
-                        ]))
-                    }
-                })
-            }
-        };
-
-        const instanceManager = new InstanceManager();
-        await recoverSessionState({
-            client: client as unknown as RecoverSessionStateOptions['client'],
-            config: { SYSTEM_TEXT_CHANNEL_ID: 'system-channel', DISCORD_BOT_ID: botId },
-            instanceManager,
-            logMessage: jest.fn().mockResolvedValue(undefined),
-            retryDelayMs: 0
-        });
-
-        const recovered = await instanceManager.getCurrentState();
+        const recovered = await recoverStateFromBackup(originalState);
         expect(recovered).toMatchObject({
             sessionId: originalState.sessionId,
             generation: originalState.generation,
-            counter: originalState.counter
+            counter: originalState.counter,
+            leaderboard: {
+                highestCount: 42,
+                highestUserId: 'alice'
+            }
         });
+        expect(recovered?.leaderboard?.lastFailure).toBeUndefined();
+    });
+
+    it('does not create leaderboard data when recovered legacy state has no counter source', async () => {
+        const originalState: SessionState = { stateId: 'state-1', sessionId: 'session-1', generation: 7 };
+
+        const recovered = await recoverStateFromBackup(originalState);
+
+        expect(recovered).toMatchObject({
+            sessionId: originalState.sessionId,
+            generation: originalState.generation
+        });
+        expect(recovered?.counter).toBeUndefined();
+        expect(recovered?.leaderboard).toBeUndefined();
+    });
+
+    it('preserves recovered leaderboard data when the backup already has it', async () => {
+        const originalState: SessionState = {
+            stateId: 'state-1',
+            sessionId: 'session-1',
+            generation: 7,
+            counter: { lastNumber: 2, lastAuthor: 'alice' },
+            leaderboard: {
+                highestCount: 9,
+                highestUserId: 'bob',
+                lastFailure: {
+                    userId: 'carol',
+                    count: 4,
+                    timestamp: '2026-05-17T00:00:00.000Z'
+                }
+            }
+        };
+
+        const recovered = await recoverStateFromBackup(originalState);
+
+        expect(recovered?.leaderboard).toEqual(originalState.leaderboard);
     });
 
     it('handles corrupt rebuild payloads without throwing', async () => {

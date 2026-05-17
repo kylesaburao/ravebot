@@ -2,5 +2,12 @@
     "HELLO": "Hello",
     "AVAILABLE_COMMANDS": "Available commands:",
     "COUNTER_GAME_WRONG_NUMBER": "You replied with the wrong number. Restarting from 0.",
-    "COUNTER_GAME_WRONG_USER": "Someone else must try. Restarting from 0."
+    "COUNTER_GAME_WRONG_USER": "Someone else must try. Restarting from 0.",
+    "COUNTER_GAME_NO_STATE": "No counter session state is available.",
+    "COUNTER_GAME_CURRENT_COUNT": "Current count: {count} by <@{userId}>",
+    "COUNTER_GAME_NO_ACTIVE_RUN": "No current counter run is active.",
+    "COUNTER_GAME_HIGHEST_REACHED": "Highest reached: {count} by <@{userId}>",
+    "COUNTER_GAME_NO_HIGH_SCORE": "No high score recorded yet.",
+    "COUNTER_GAME_LAST_FAILURE": "Last failure: <@{userId}> at {count} on {timestamp}",
+    "COUNTER_GAME_NO_FAILURES": "No failures recorded yet."
 }

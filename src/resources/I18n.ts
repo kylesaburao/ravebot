@@ -6,3 +6,9 @@ export const getTranslation = (key: string) => {
         ? text
         : key;
 };
+
+export const formatTranslation = (key: string, values: Record<string, string | number>): string =>
+    Object.entries(values).reduce(
+        (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+        getTranslation(key)
+    );

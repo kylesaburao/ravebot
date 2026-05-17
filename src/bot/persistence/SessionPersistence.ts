@@ -17,7 +17,16 @@ export interface SessionState {
     counter?: {
         lastNumber: number;
         lastAuthor: string;
-    }
+    };
+    leaderboard?: {
+        highestCount: number;
+        highestUserId: string;
+        lastFailure?: {
+            userId: string;
+            count: number;
+            timestamp: string;
+        };
+    };
 }
 
 export class InstanceManager {

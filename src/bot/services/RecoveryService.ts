@@ -2,7 +2,8 @@ import { type Client } from "discord.js";
 import {
     REBUILD_STATE_HEADER,
     reconstructSessionStateFromFinalMessage,
-    type InstanceManager
+    type InstanceManager,
+    type SessionState
 } from "../persistence/SessionPersistence";
 import { type BotConfig } from "../types/BotConfig";
 
@@ -40,6 +41,21 @@ interface RecoverSessionStateOptions {
 const delay = (ms: number) => new Promise(resolve => {
     setTimeout(resolve, ms);
 });
+
+export const normalizeRecoveredSessionState = (persistedState: SessionState): SessionState => {
+    // Handle migrating a state from before the leaderboard feature was added
+    if (persistedState.leaderboard || !persistedState.counter) {
+        return persistedState;
+    }
+
+    return {
+        ...persistedState,
+        leaderboard: {
+            highestCount: persistedState.counter.lastNumber,
+            highestUserId: persistedState.counter.lastAuthor
+        }
+    };
+};
 
 export const findRecoveryContent = async ({
     channel,
@@ -129,8 +145,10 @@ export const recoverSessionState = async ({
 
     try {
         const persistedState = await reconstructSessionStateFromFinalMessage(recoveryContent);
+        const stateToPersist = normalizeRecoveredSessionState(persistedState);
+
         await instanceManager.runAtomicStateUpdate(async (_, writeState) => {
-            await writeState(persistedState);
+            await writeState(stateToPersist);
         });
     } catch (error) {
         console.error('Failed to reconstruct session state:', error);

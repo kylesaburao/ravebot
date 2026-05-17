@@ -1,7 +1,7 @@
 import { type Client, Events } from 'discord.js';
 import { onCounterGameMessage, registerCounterGame } from '../../../src/bot/events/CounterGame';
 import { getDebugAction, registerDebugHandlers, shouldHandleDebugMessage } from '../../../src/bot/events/DebugHandler';
-import { InstanceManager } from '../../../src/bot/persistence/SessionPersistence';
+import { InstanceManager, type SessionState } from '../../../src/bot/persistence/SessionPersistence';
 import { type BotConfig } from '../../../src/bot/types/BotConfig';
 import {
     BackupReason,
@@ -54,10 +54,11 @@ const createMockMessage = (overrides: MessageOverrides = {}) => {
 
 const seedState = async (
     instanceManager: InstanceManager,
-    counter?: { lastNumber: number; lastAuthor: string }
+    counter?: { lastNumber: number; lastAuthor: string },
+    leaderboard?: SessionState['leaderboard']
 ) => {
     await instanceManager.runAtomicStateUpdate(async (_currentState, writeState) => {
-        await writeState({ sessionId: 'session-1', generation: 1, counter });
+        await writeState({ sessionId: 'session-1', generation: 1, counter, leaderboard });
     });
 };
 
@@ -130,7 +131,22 @@ describe('onCounterGameMessage (integration)', () => {
         expect(await instanceManager.getCurrentState()).toBeUndefined();
     });
 
-    it('records a successful next-number reply', async () => {
+    it('replies to the leaderboard command in the counter channel without changing state', async () => {
+        const stateBefore = await instanceManager.getCurrentState();
+        const { message, reply, sendTyping } = createMockMessage({
+            content: 'LEADERBOARD',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        await onCounterGameMessage(message, config, instanceManager);
+
+        expect(sendTyping).toHaveBeenCalledTimes(1);
+        expect(String(reply.mock.calls[0]?.[0] ?? '')).toContain('Current count: 5 by <@alice>');
+        expect(await instanceManager.getCurrentState()).toEqual(stateBefore);
+    });
+
+    it('creates leaderboard data on the first successful count after legacy in-memory state', async () => {
         const { message, reply } = createMockMessage({
             content: '6',
             authorId: NEW_AUTHOR,
@@ -138,10 +154,42 @@ describe('onCounterGameMessage (integration)', () => {
         });
         await onCounterGameMessage(message, config, instanceManager);
         expect(reply).not.toHaveBeenCalled();
-        expect((await instanceManager.getCurrentState())?.counter).toEqual({ lastNumber: 6, lastAuthor: NEW_AUTHOR });
+        expect(await instanceManager.getCurrentState()).toMatchObject({
+            counter: { lastNumber: 6, lastAuthor: NEW_AUTHOR },
+            leaderboard: { highestCount: 6, highestUserId: NEW_AUTHOR }
+        });
     });
 
-    it('resets and replies when the wrong number is sent', async () => {
+    it('preserves the high score when the next count is below the historical record', async () => {
+        await seedState(instanceManager, { lastNumber: 5, lastAuthor: PRIOR_AUTHOR }, {
+            highestCount: 10,
+            highestUserId: 'carol',
+            lastFailure: {
+                userId: 'dave',
+                count: 8,
+                timestamp: '2026-05-17T00:00:00.000Z'
+            }
+        });
+        const { message } = createMockMessage({
+            content: '6',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        await onCounterGameMessage(message, config, instanceManager);
+
+        expect((await instanceManager.getCurrentState())?.leaderboard).toEqual({
+            highestCount: 10,
+            highestUserId: 'carol',
+            lastFailure: {
+                userId: 'dave',
+                count: 8,
+                timestamp: '2026-05-17T00:00:00.000Z'
+            }
+        });
+    });
+
+    it('creates leaderboard data on the first failed count after legacy in-memory state', async () => {
         const { message, reply, sendTyping } = createMockMessage({
             content: '8',
             authorId: NEW_AUTHOR,
@@ -150,7 +198,35 @@ describe('onCounterGameMessage (integration)', () => {
         await onCounterGameMessage(message, config, instanceManager);
         expect(sendTyping).toHaveBeenCalledTimes(1);
         expect(reply).toHaveBeenCalledWith(getTranslation('COUNTER_GAME_WRONG_NUMBER'));
-        expect((await instanceManager.getCurrentState())?.counter).toBeUndefined();
+        expect(await instanceManager.getCurrentState()).toMatchObject({
+            counter: undefined,
+            leaderboard: {
+                highestCount: 5,
+                highestUserId: PRIOR_AUTHOR,
+                lastFailure: {
+                    userId: NEW_AUTHOR,
+                    count: 8
+                }
+            }
+        });
+        expect((await instanceManager.getCurrentState())?.leaderboard?.lastFailure?.timestamp).toEqual(expect.any(String));
+    });
+
+    it('does not create leaderboard data when a failure has no counter source', async () => {
+        await seedState(instanceManager);
+        const { message, reply } = createMockMessage({
+            content: '1',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        await onCounterGameMessage(message, config, instanceManager);
+
+        expect(reply).toHaveBeenCalledWith(getTranslation('COUNTER_GAME_WRONG_NUMBER'));
+        expect(await instanceManager.getCurrentState()).toMatchObject({
+            counter: undefined,
+            leaderboard: undefined
+        });
     });
 
     it('resets and replies when the same author replies twice', async () => {
@@ -242,6 +318,8 @@ describe('registerDebugHandlers (integration)', () => {
         expect(replyArg).toContain('`HELP`');
         expect(replyArg).toContain('`MANUAL_BACKUP`');
         expect(replyArg).toContain('`FORCE_UPDATE`');
+        expect(replyArg).not.toContain('`LEADERBOARD`');
+        expect(replyArg).not.toContain('`COUNTER_STATS`');
     });
 
     it('notifies the backup event bus on MANUAL_BACKUP', async () => {
@@ -304,6 +382,7 @@ describe('registerDebugHandlers (integration)', () => {
 describe('DebugHandler decision helpers', () => {
     it('looks up debug commands without constructing a Discord client', () => {
         expect(getDebugAction('HELP')).toBeDefined();
+        expect(getDebugAction('LEADERBOARD')).toBeUndefined();
         expect(getDebugAction('NOT_A_COMMAND')).toBeUndefined();
     });
 
@@ -397,6 +476,17 @@ describe('registered user message handlers (end-to-end)', () => {
             lastNumber: 5,
             lastAuthor: PRIOR_AUTHOR
         });
+    });
+
+    it('reports counter stats from the registered counter-game handler', async () => {
+        const { reply, sendTyping } = await dispatch({
+            content: 'LEADERBOARD',
+            authorId: NEW_AUTHOR,
+            channelId: config.COUNTER_TEXT_CHANNEL_ID,
+        });
+
+        expect(sendTyping).toHaveBeenCalledTimes(1);
+        expect(String(reply.mock.calls[0]?.[0] ?? '')).toContain('Current count: 5 by <@alice>');
     });
 
     it('notifies backup listeners from the registered debug handler', async () => {
