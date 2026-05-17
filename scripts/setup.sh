@@ -6,6 +6,6 @@ cd "$REPO_ROOT"
 
 echo "Configuring Git hooks..."
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-push
+chmod +x .githooks/pre-commit .githooks/pre-push
 
 echo "Setup complete."

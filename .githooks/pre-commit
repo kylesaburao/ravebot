@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+echo "pre-commit: linting src/ and test/..."
+
+if ! output="$(npm run --silent lint 2>&1)"; then
+    echo "pre-commit failed: npm run lint found issues." >&2
+    echo "$output" >&2
+    exit 1
+fi
+
+echo "pre-commit passed: lint clean."

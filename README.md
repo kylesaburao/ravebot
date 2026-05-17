@@ -26,7 +26,10 @@ Run the setup script once after cloning:
 npm run setup
 ```
 
-This configures Git to use the tracked hooks in `.githooks/`.
+This configures Git to use the tracked hooks in `.githooks/`:
+
+- `pre-commit` runs `npm run lint`
+- `pre-push` runs `npm run build` and `npm test`
 
 ## Running
 
